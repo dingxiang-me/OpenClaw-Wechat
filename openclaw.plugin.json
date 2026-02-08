@@ -1,8 +1,8 @@
 {
-  "id": "clawdbot-wecom",
-  "name": "@mijia-life/clawdbot-wecom",
+  "id": "openclaw-wecom",
+  "name": "@mijia-life/openclaw-wecom",
   "version": "0.1.0",
-  "description": "WeCom (企业微信) channel plugin for Clawdbot (internal apps).",
+  "description": "WeCom (企业微信) channel plugin for OpenClaw (internal apps).",
   "extensions": ["./src/index.js"],
   "configSchema": {
     "type": "object",

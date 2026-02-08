@@ -1,6 +1,6 @@
-# Clawdbot 企业微信插件(个人微信可对话)
+# OpenClaw 企业微信插件(个人微信可对话)
 
-> 让你的 Clawdbot AI 助手接入企业微信，通过自建应用实现智能对话。
+> 让你的 OpenClaw AI 助手接入企业微信，通过自建应用实现智能对话。
 > 接入企业微信后，可在个人微信进行对话（菜单：我的企业—微信插件，使用个人微信扫码）
 
 ## 功能特性
@@ -32,7 +32,7 @@
 
 ## 前置要求
 
-- [Clawdbot](https://clawd.bot) 已安装并配置
+- [OpenClaw](https://clawd.bot) 已安装并配置
 - 企业微信管理员权限
 - 公网可访问的服务器（用于接收回调）
 
@@ -43,12 +43,12 @@
 1. 克隆本仓库：
 
 ```bash
-git clone https://github.com/anthropics/clawdbot-wecom.git
-cd clawdbot-wecom
+git clone https://github.com/anthropics/openclaw-wecom.git
+cd openclaw-wecom
 npm install
 ```
 
-2. 在 Clawdbot 配置文件 `~/.clawdbot/clawdbot.json` 中添加插件路径：
+2. 在 OpenClaw 配置文件 `~/.openclaw/openclaw.json` 中添加插件路径：
 
 ```json
 {
@@ -56,11 +56,11 @@ npm install
     "enabled": true,
     "load": {
       "paths": [
-        "/path/to/clawdbot-wecom"
+        "/path/to/openclaw-wecom"
       ]
     },
     "entries": {
-      "clawdbot-wecom": {
+      "openclaw-wecom": {
         "enabled": true
       }
     }
@@ -71,7 +71,7 @@ npm install
 ### 方式二：npm 安装（即将支持）
 
 ```bash
-clawdbot plugins install @mijia-life/clawdbot-wecom
+openclaw plugins install @mijia-life/openclaw-wecom
 ```
 
 ## 配置
@@ -97,11 +97,11 @@ clawdbot plugins install @mijia-life/clawdbot-wecom
    - **URL**：`https://你的域名/wecom/callback`
    - **Token**：自定义一个 Token（随机字符串）
    - **EncodingAESKey**：点击随机生成
-3. 先不要保存！需要先启动 Clawdbot 服务
+3. 先不要保存！需要先启动 OpenClaw 服务
 
 ### 第四步：配置环境变量
 
-在 `~/.clawdbot/clawdbot.json` 中添加环境变量：
+在 `~/.openclaw/openclaw.json` 中添加环境变量：
 
 ```json
 {
@@ -151,27 +151,27 @@ clawdbot plugins install @mijia-life/clawdbot-wecom
 brew install cloudflared
 
 # 创建隧道
-cloudflared tunnel create clawdbot
+cloudflared tunnel create openclaw
 
 # 配置隧道路由
-cloudflared tunnel route dns clawdbot 你的域名
+cloudflared tunnel route dns openclaw 你的域名
 
 # 启动隧道
-cloudflared tunnel run clawdbot
+cloudflared tunnel run openclaw
 ```
 
 ### 第六步：启动并验证
 
-1. 重启 Clawdbot Gateway：
+1. 重启 OpenClaw Gateway：
 
 ```bash
-clawdbot gateway restart
+openclaw gateway restart
 ```
 
 2. 检查插件是否加载：
 
 ```bash
-clawdbot plugins list
+openclaw plugins list
 ```
 
 3. 回到企业微信管理后台，点击保存回调配置
@@ -226,9 +226,9 @@ curl https://你的域名/wecom/callback
 
 2. 检查环境变量是否正确配置
 
-3. 查看 Clawdbot 日志：
+3. 查看 OpenClaw 日志：
 ```bash
-clawdbot logs -f | grep wecom
+openclaw logs -f | grep wecom
 ```
 
 ### 消息没有回复
@@ -258,7 +258,7 @@ clawdbot logs -f | grep wecom
 
 ## 相关链接
 
-- [Clawdbot 官网](https://clawd.bot)
+- [OpenClaw 官网](https://clawd.bot)
 - [企业微信开发文档](https://developer.work.weixin.qq.com/document/)
 - [企业微信消息加解密说明](https://developer.work.weixin.qq.com/document/path/90968)
 
@@ -272,4 +272,4 @@ MIT
 
 ## 致谢
 
-本插件由 [Clawdbot](https://clawd.bot) 社区开发维护。
+本插件由 [OpenClaw](https://clawd.bot) 社区开发维护。

@@ -1,12 +1,12 @@
 {
-  "name": "@mijia-life/clawdbot-wecom",
+  "name": "@mijia-life/openclaw-wecom",
   "version": "0.3.1",
   "private": true,
   "type": "module",
-  "description": "WeCom (企业微信) channel plugin for Clawdbot (internal apps).",
+  "description": "WeCom (企业微信) channel plugin for OpenClaw (internal apps).",
   "license": "MIT",
   "exports": "./src/index.js",
-  "clawdbot": {
+  "openclaw": {
     "extensions": ["./src/index.js"],
     "channel": {
       "id": "wecom",
@@ -20,7 +20,7 @@
     }
   },
   "dependencies": {
-    "clawdbot": "*",
+    "openclaw": "*",
     "fast-xml-parser": "^4.3.6"
   }
 }
