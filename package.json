@@ -6,8 +6,10 @@
   "description": "WeCom (企业微信) channel plugin for Clawdbot (internal apps).",
   "license": "MIT",
   "exports": "./src/index.js",
-  "clawdbot": {
-    "extensions": ["./src/index.js"],
+  "openclaw": {
+    "extensions": [
+      "./src/index.js"
+    ],
     "channel": {
       "id": "wecom",
       "label": "WeCom",
@@ -16,11 +18,14 @@
       "docsLabel": "wecom",
       "blurb": "Enterprise WeChat internal app via callback + send API.",
       "order": 80,
-      "aliases": ["wework", "qiwei", "wxwork"]
+      "aliases": [
+        "wework",
+        "qiwei",
+        "wxwork"
+      ]
     }
   },
   "dependencies": {
-    "clawdbot": "*",
-    "fast-xml-parser": "^4.3.6"
+    "fast-xml-parser": "^5.3.5"
   }
 }

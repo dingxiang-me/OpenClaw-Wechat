@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
 import { XMLParser, XMLBuilder } from "fast-xml-parser";
-import { normalizePluginHttpPath } from "clawdbot/plugin-sdk";
+import { normalizePluginHttpPath } from "openclaw/plugin-sdk";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFile, unlink, mkdir, appendFile } from "node:fs/promises";
-import { existsSync, appendFileSync } from "node:fs";
+import { existsSync, appendFileSync, readFileSync, statSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -122,7 +122,7 @@ async function getWecomAccessToken({ corpId, corpSecret }) {
   cache.refreshPromise = (async () => {
     try {
       const tokenUrl = `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${encodeURIComponent(corpId)}&corpsecret=${encodeURIComponent(corpSecret)}`;
-      const tokenRes = await fetch(tokenUrl);
+      const tokenRes = await fetchWithRetry(tokenUrl);
       const tokenJson = await tokenRes.json();
       if (!tokenJson?.access_token) {
         throw new Error(`WeCom gettoken failed: ${JSON.stringify(tokenJson)}`);
@@ -201,6 +201,45 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 带重试机制的 fetch 包装函数
+async function fetchWithRetry(url, options = {}, maxRetries = 3, initialDelay = 1000) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      
+      // 如果是 2xx 以外的状态码，可能需要重试（根据业务逻辑判断）
+      if (!res.ok && attempt < maxRetries) {
+        const delay = initialDelay * Math.pow(2, attempt);
+        await sleep(delay);
+        continue;
+      }
+
+      // 如果是企业微信 API，检查 errcode
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const json = await res.clone().json();
+        // errcode: -1 表示系统繁忙，建议重试
+        if (json?.errcode === -1 && attempt < maxRetries) {
+          const delay = initialDelay * Math.pow(2, attempt);
+          await sleep(delay);
+          continue;
+        }
+      }
+
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        const delay = initialDelay * Math.pow(2, attempt);
+        await sleep(delay);
+        continue;
+      }
+    }
+  }
+  throw lastError || new Error(`Fetch failed after ${maxRetries} retries`);
+}
+
 // 简单的限流器，防止触发企业微信 API 限流
 class RateLimiter {
   constructor({ maxConcurrent = 3, minInterval = 200 }) {
@@ -251,8 +290,8 @@ class RateLimiter {
 // API 调用限流器（最多3并发，200ms间隔）
 const apiLimiter = new RateLimiter({ maxConcurrent: 3, minInterval: 200 });
 
-// 消息处理限流器（最多5并发）
-const messageProcessLimiter = new RateLimiter({ maxConcurrent: 5, minInterval: 0 });
+// 消息处理限流器（最多2并发，适合 1GB 内存环境）
+const messageProcessLimiter = new RateLimiter({ maxConcurrent: 2, minInterval: 0 });
 
 // 消息分段函数，按字节限制分割（企业微信限制 2048 字节）
 function splitWecomText(text, byteLimit = WECOM_TEXT_BYTE_LIMIT) {
@@ -325,7 +364,7 @@ async function sendWecomTextSingle({ corpId, corpSecret, agentId, toUser, text }
       text: { content: text },
       safe: 0,
     };
-    const sendRes = await fetch(sendUrl, {
+    const sendRes = await fetchWithRetry(sendUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -369,7 +408,7 @@ async function uploadWecomMedia({ corpId, corpSecret, type, buffer, filename }) 
   const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
   const body = Buffer.concat([header, buffer, footer]);
 
-  const res = await fetch(uploadUrl, {
+  const res = await fetchWithRetry(uploadUrl, {
     method: "POST",
     headers: {
       "Content-Type": `multipart/form-data; boundary=${boundary}`,
@@ -399,7 +438,7 @@ async function sendWecomImage({ corpId, corpSecret, agentId, toUser, mediaId }) 
       safe: 0,
     };
 
-    const sendRes = await fetch(sendUrl, {
+    const sendRes = await fetchWithRetry(sendUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -429,7 +468,7 @@ async function sendWecomVideo({ corpId, corpSecret, agentId, toUser, mediaId, ti
       },
       safe: 0,
     };
-    const sendRes = await fetch(sendUrl, {
+    const sendRes = await fetchWithRetry(sendUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -454,7 +493,7 @@ async function sendWecomFile({ corpId, corpSecret, agentId, toUser, mediaId }) {
       file: { media_id: mediaId },
       safe: 0,
     };
-    const sendRes = await fetch(sendUrl, {
+    const sendRes = await fetchWithRetry(sendUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -469,7 +508,7 @@ async function sendWecomFile({ corpId, corpSecret, agentId, toUser, mediaId }) {
 
 // 从 URL 下载媒体文件
 async function fetchMediaFromUrl(url) {
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) {
     throw new Error(`Failed to fetch media from URL: ${res.status}`);
   }
@@ -562,25 +601,40 @@ let gatewayRuntime = null;
 // 存储 gateway broadcast 上下文，用于向 Chat UI 广播消息
 let gatewayBroadcastCtx = null;
 
+// 缓存 sessions.json 数据以减少 IO
+let cachedSessionsData = null;
+let lastSessionsMtime = 0;
+
+function getSessionsData(jsonPath, logger) {
+  try {
+    if (!existsSync(jsonPath)) return {};
+    const stats = statSync(jsonPath);
+    if (cachedSessionsData && stats.mtimeMs <= lastSessionsMtime) {
+      return cachedSessionsData;
+    }
+    const data = JSON.parse(readFileSync(jsonPath, "utf8"));
+    cachedSessionsData = data;
+    lastSessionsMtime = stats.mtimeMs;
+    return data;
+  } catch (err) {
+    logger?.warn?.(`wecom: failed to read sessions.json: ${err.message}`);
+    return cachedSessionsData || {};
+  }
+}
+
 // 写入消息到 session transcript 文件，使 Chat UI 可以显示
 async function writeToTranscript({ sessionKey, role, text, logger }) {
   try {
-    const stateDir = process.env.CLAWDBOT_STATE_DIR || join(homedir(), ".clawdbot");
+    const stateDir = process.env.OPENCLAW_STATE_DIR || process.env.CLAWDBOT_STATE_DIR || join(homedir(), ".openclaw");
     const sessionsDir = join(stateDir, "agents", "main", "sessions");
     const sessionsJsonPath = join(sessionsDir, "sessions.json");
 
-    // 读取 sessions.json 获取 sessionId
-    if (!existsSync(sessionsJsonPath)) {
-      logger?.warn?.("wecom: sessions.json not found");
-      return;
-    }
-
-    const { readFileSync } = await import("node:fs");
-    const sessionsData = JSON.parse(readFileSync(sessionsJsonPath, "utf8"));
+    const sessionsData = getSessionsData(sessionsJsonPath, logger);
     const sessionEntry = sessionsData[sessionKey] || sessionsData[sessionKey.toLowerCase()];
 
     if (!sessionEntry?.sessionId) {
-      logger?.warn?.(`wecom: session entry not found for ${sessionKey}`);
+      // 如果没有缓存，尝试直接从运行时获取上下文（如果可用）
+      logger?.warn?.(`wecom: session entry not found for ${sessionKey} in ${sessionsJsonPath}`);
       return;
     }
 
@@ -847,6 +901,7 @@ export default function register(api) {
       if (req.method === "GET") {
         // URL verification
         const expected = computeMsgSignature({ token, timestamp, nonce, encrypt: echostr });
+        api.logger.info(`wecom verify: token=${token} ts=${timestamp} nonce=${nonce} encrypt=${echostr} expected=${expected} sent=${msg_signature}`);
         if (!msg_signature || expected !== msg_signature) {
           res.statusCode = 401;
           res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -907,50 +962,62 @@ export default function register(api) {
 
       // 异步处理消息，不阻塞响应
       if (msgType === "text" && msgObj?.Content) {
-        processInboundMessage({ api, fromUser, content: msgObj.Content, msgType: "text", chatId, isGroupChat }).catch((err) => {
+        messageProcessLimiter.execute(() =>
+          processInboundMessage({ api, fromUser, content: msgObj.Content, msgType: "text", chatId, isGroupChat })
+        ).catch((err) => {
           api.logger.error?.(`wecom: async message processing failed: ${err.message}`);
         });
       } else if (msgType === "image" && msgObj?.MediaId) {
-        processInboundMessage({ api, fromUser, mediaId: msgObj.MediaId, msgType: "image", picUrl: msgObj.PicUrl, chatId, isGroupChat }).catch((err) => {
+        messageProcessLimiter.execute(() =>
+          processInboundMessage({ api, fromUser, mediaId: msgObj.MediaId, msgType: "image", picUrl: msgObj.PicUrl, chatId, isGroupChat })
+        ).catch((err) => {
           api.logger.error?.(`wecom: async image processing failed: ${err.message}`);
         });
       } else if (msgType === "voice" && msgObj?.MediaId) {
         // Recognition 字段包含企业微信自动语音识别的结果（需要在企业微信后台开启）
-        processInboundMessage({ api, fromUser, mediaId: msgObj.MediaId, msgType: "voice", recognition: msgObj.Recognition, chatId, isGroupChat }).catch((err) => {
+        messageProcessLimiter.execute(() =>
+          processInboundMessage({ api, fromUser, mediaId: msgObj.MediaId, msgType: "voice", recognition: msgObj.Recognition, chatId, isGroupChat })
+        ).catch((err) => {
           api.logger.error?.(`wecom: async voice processing failed: ${err.message}`);
         });
       } else if (msgType === "video" && msgObj?.MediaId) {
-        processInboundMessage({
-          api, fromUser,
-          mediaId: msgObj.MediaId,
-          msgType: "video",
-          thumbMediaId: msgObj.ThumbMediaId,
-          chatId, isGroupChat
-        }).catch((err) => {
+        messageProcessLimiter.execute(() =>
+          processInboundMessage({
+            api, fromUser,
+            mediaId: msgObj.MediaId,
+            msgType: "video",
+            thumbMediaId: msgObj.ThumbMediaId,
+            chatId, isGroupChat
+          })
+        ).catch((err) => {
           api.logger.error?.(`wecom: async video processing failed: ${err.message}`);
         });
       } else if (msgType === "file" && msgObj?.MediaId) {
-        processInboundMessage({
-          api, fromUser,
-          mediaId: msgObj.MediaId,
-          msgType: "file",
-          fileName: msgObj.FileName,
-          fileSize: msgObj.FileSize,
-          chatId, isGroupChat
-        }).catch((err) => {
+        messageProcessLimiter.execute(() =>
+          processInboundMessage({
+            api, fromUser,
+            mediaId: msgObj.MediaId,
+            msgType: "file",
+            fileName: msgObj.FileName,
+            fileSize: msgObj.FileSize,
+            chatId, isGroupChat
+          })
+        ).catch((err) => {
           api.logger.error?.(`wecom: async file processing failed: ${err.message}`);
         });
       } else if (msgType === "link") {
         // 链接分享消息
-        processInboundMessage({
-          api, fromUser,
-          msgType: "link",
-          linkTitle: msgObj.Title,
-          linkDescription: msgObj.Description,
-          linkUrl: msgObj.Url,
-          linkPicUrl: msgObj.PicUrl,
-          chatId, isGroupChat
-        }).catch((err) => {
+        messageProcessLimiter.execute(() =>
+          processInboundMessage({
+            api, fromUser,
+            msgType: "link",
+            linkTitle: msgObj.Title,
+            linkDescription: msgObj.Description,
+            linkUrl: msgObj.Url,
+            linkPicUrl: msgObj.PicUrl,
+            chatId, isGroupChat
+          })
+        ).catch((err) => {
           api.logger.error?.(`wecom: async link processing failed: ${err.message}`);
         });
       } else {
@@ -967,7 +1034,7 @@ async function downloadWecomMedia({ corpId, corpSecret, mediaId }) {
   const accessToken = await getWecomAccessToken({ corpId, corpSecret });
   const mediaUrl = `https://qyapi.weixin.qq.com/cgi-bin/media/get?access_token=${encodeURIComponent(accessToken)}&media_id=${encodeURIComponent(mediaId)}`;
 
-  const res = await fetch(mediaUrl);
+  const res = await fetchWithRetry(mediaUrl);
   if (!res.ok) {
     throw new Error(`Failed to download media: ${res.status}`);
   }
