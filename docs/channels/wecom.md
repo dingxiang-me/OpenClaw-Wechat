@@ -1,22 +1,56 @@
 ---
-summary: "WeCom (企业微信) channel plugin"
+summary: "OpenClaw-Wechat WeCom channel plugin"
 ---
 
 # WeCom (企业微信) (plugin)
 
-This channel integrates Clawdbot with WeCom (企业微信) internal apps.
+This channel integrates OpenClaw with WeCom (企业微信) internal apps.
 
 ## Status
 
 - Webhook verification: supported (requires Token + EncodingAESKey)
-- Inbound messages: WIP
-- Outbound: text supported; media/markdown WIP
+- Inbound messages: text/image/voice/video/file/link
+- Outbound: text and image
+- Multi-account: supported (`channels.wecom.accounts`)
 
 ## Callback URL
 
 Recommended:
 
 - `https://<your-domain>/wecom/callback`
+
+## Selfcheck
+
+Run:
+
+```bash
+npm run wecom:selfcheck -- --account default
+```
+
+All accounts:
+
+```bash
+npm run wecom:selfcheck -- --all-accounts
+```
+
+Upgrade smoke check:
+
+```bash
+npm run wecom:smoke
+```
+
+## Coexistence (Telegram/Feishu)
+
+See troubleshooting guide:
+
+- `docs/troubleshooting/coexistence.md`
+
+Optional:
+
+- `--config ~/.openclaw/openclaw.json`
+- `--skip-network`
+- `--skip-local-webhook`
+- `--json`
 
 ## Security
 

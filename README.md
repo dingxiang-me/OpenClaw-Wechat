@@ -1,6 +1,6 @@
-# Clawdbot 企业微信插件(个人微信可对话)
+# OpenClaw-Wechat 企业微信插件
 
-> 让你的 Clawdbot AI 助手接入企业微信，通过自建应用实现智能对话。
+> 让你的 OpenClaw AI 助手接入企业微信，通过自建应用实现智能对话。
 > 接入企业微信后，可在个人微信进行对话（菜单：我的企业—微信插件，使用个人微信扫码）
 
 ## 功能特性
@@ -29,10 +29,11 @@
 - [x] 多账户支持
 - [x] 群聊支持
 - [x] Token 并发安全
+- [x] wecom:selfcheck 一键自检
 
 ## 前置要求
 
-- [Clawdbot](https://clawd.bot) 已安装并配置
+- [OpenClaw](https://openclaw.ai) 已安装并配置
 - 企业微信管理员权限
 - 公网可访问的服务器（用于接收回调）
 
@@ -43,24 +44,27 @@
 1. 克隆本仓库：
 
 ```bash
-git clone https://github.com/anthropics/clawdbot-wecom.git
-cd clawdbot-wecom
+git clone https://github.com/dingxiang-me/OpenClaw-Wechat.git
+cd OpenClaw-Wechat
 npm install
 ```
 
-2. 在 Clawdbot 配置文件 `~/.clawdbot/clawdbot.json` 中添加插件路径：
+2. 在 OpenClaw 配置文件 `~/.openclaw/openclaw.json` 中添加插件路径：
 
 ```json
 {
   "plugins": {
     "enabled": true,
+    "allow": [
+      "openclaw-wechat"
+    ],
     "load": {
       "paths": [
-        "/path/to/clawdbot-wecom"
+        "/path/to/OpenClaw-Wechat"
       ]
     },
     "entries": {
-      "clawdbot-wecom": {
+      "openclaw-wechat": {
         "enabled": true
       }
     }
@@ -71,7 +75,7 @@ npm install
 ### 方式二：npm 安装（即将支持）
 
 ```bash
-clawdbot plugins install @mijia-life/clawdbot-wecom
+openclaw plugins install openclaw-wechat
 ```
 
 ## 配置
@@ -97,30 +101,60 @@ clawdbot plugins install @mijia-life/clawdbot-wecom
    - **URL**：`https://你的域名/wecom/callback`
    - **Token**：自定义一个 Token（随机字符串）
    - **EncodingAESKey**：点击随机生成
-3. 先不要保存！需要先启动 Clawdbot 服务
+3. 先不要保存！需要先启动 OpenClaw 服务
 
-### 第四步：配置环境变量
+### 第四步：配置账号
 
-在 `~/.clawdbot/clawdbot.json` 中添加环境变量：
+推荐在 `~/.openclaw/openclaw.json` 使用 `channels.wecom`（原生结构）：
 
 ```json
 {
-  "env": {
-    "vars": {
-      "WECOM_CORP_ID": "你的企业ID",
-      "WECOM_CORP_SECRET": "你的应用Secret",
-      "WECOM_AGENT_ID": "你的应用AgentId",
-      "WECOM_CALLBACK_TOKEN": "你设置的Token",
-      "WECOM_CALLBACK_AES_KEY": "你生成的EncodingAESKey",
-      "WECOM_WEBHOOK_PATH": "/wecom/callback"
+  "channels": {
+    "wecom": {
+      "enabled": true,
+      "corpId": "默认账户企业ID",
+      "corpSecret": "默认账户Secret",
+      "agentId": 1000004,
+      "callbackToken": "默认账户Token",
+      "callbackAesKey": "默认账户EncodingAESKey",
+      "webhookPath": "/wecom/callback"
     }
   }
 }
 ```
 
-#### 多账户配置
+多账户（推荐）：
 
-支持配置多个企业微信账户，使用 `WECOM_<ACCOUNT>_*` 格式：
+```json
+{
+  "channels": {
+    "wecom": {
+      "accounts": {
+        "default": {
+          "enabled": true,
+          "corpId": "默认账户企业ID",
+          "corpSecret": "默认账户Secret",
+          "agentId": 1000004,
+          "callbackToken": "默认账户Token",
+          "callbackAesKey": "默认账户EncodingAESKey",
+          "webhookPath": "/wecom/callback"
+        },
+        "sales": {
+          "enabled": true,
+          "corpId": "销售账户企业ID",
+          "corpSecret": "销售账户Secret",
+          "agentId": 1000005,
+          "callbackToken": "销售账户Token",
+          "callbackAesKey": "销售账户EncodingAESKey",
+          "webhookPath": "/wecom/sales/callback"
+        }
+      }
+    }
+  }
+}
+```
+
+兼容旧配置：也支持 `env.vars`（`WECOM_*` / `WECOM_<ACCOUNT>_*`）：
 
 ```json
 {
@@ -151,31 +185,59 @@ clawdbot plugins install @mijia-life/clawdbot-wecom
 brew install cloudflared
 
 # 创建隧道
-cloudflared tunnel create clawdbot
+cloudflared tunnel create openclaw
 
 # 配置隧道路由
-cloudflared tunnel route dns clawdbot 你的域名
+cloudflared tunnel route dns openclaw 你的域名
 
 # 启动隧道
-cloudflared tunnel run clawdbot
+cloudflared tunnel run openclaw
 ```
 
 ### 第六步：启动并验证
 
-1. 重启 Clawdbot Gateway：
+1. 重启 OpenClaw Gateway：
 
 ```bash
-clawdbot gateway restart
+openclaw gateway restart
 ```
 
 2. 检查插件是否加载：
 
 ```bash
-clawdbot plugins list
+openclaw plugins list
 ```
 
-3. 回到企业微信管理后台，点击保存回调配置
-4. 如果验证通过，配置完成！
+3. 运行自检（推荐）：
+
+```bash
+npm run wecom:selfcheck -- --account default
+```
+
+多账户一次性体检：
+
+```bash
+npm run wecom:selfcheck -- --all-accounts
+```
+
+升级后快速回归：
+
+```bash
+npm run wecom:smoke
+```
+
+4. 回到企业微信管理后台，点击保存回调配置
+5. 如果验证通过，配置完成！
+
+## 渠道并存建议（Telegram/Feishu）
+
+建议固定以下三点，避免升级后出现“偶发无回复”：
+
+1. `plugins.allow` 使用显式白名单（至少包含 `openclaw-wechat`）
+2. WeCom 使用独立 `webhookPath`，不要与其他 HTTP 回调渠道复用
+3. 保证同一台机器只运行一个 OpenClaw gateway 进程
+
+详细排查见：[`docs/troubleshooting/coexistence.md`](./docs/troubleshooting/coexistence.md)
 
 ## 使用
 
@@ -191,7 +253,7 @@ clawdbot plugins list
 |------|------|
 | `/help` | 显示帮助信息 |
 | `/status` | 查看系统状态（含账户信息） |
-| `/clear` | 清除会话历史 |
+| `/clear` | 重置会话（等价于 `/reset`） |
 
 ### 支持的消息类型
 
@@ -200,8 +262,9 @@ clawdbot plugins list
 | 文本 | ✅ | ✅ | 完全支持，自动分段 |
 | 图片 | ✅ | ✅ | 支持 Vision 识别 |
 | 语音 | ✅ | ❌ | 需开启企业微信语音识别 |
-| 视频 | ❌ | ❌ | 暂不支持 |
-| 文件 | ❌ | ❌ | 暂不支持 |
+| 视频 | ✅ | ❌ | 接收后保存临时文件供 AI 处理 |
+| 文件 | ✅ | ❌ | 接收后保存临时文件供 AI 处理 |
+| 链接 | ✅ | ❌ | 支持标题/描述/URL 提取 |
 
 ## 环境变量说明
 
@@ -226,10 +289,22 @@ curl https://你的域名/wecom/callback
 
 2. 检查环境变量是否正确配置
 
-3. 查看 Clawdbot 日志：
+3. 查看 OpenClaw 日志：
 ```bash
-clawdbot logs -f | grep wecom
+openclaw logs -f | grep wecom
 ```
+
+4. 运行插件自检：
+```bash
+npm run wecom:selfcheck -- --account default
+```
+
+5. 批量检查所有账户并输出 JSON：
+```bash
+npm run wecom:selfcheck -- --all-accounts --json
+```
+
+6. 检查并存配置项（重点看 `plugins.allow` / `config.webhookPath.conflict`）
 
 ### 消息没有回复
 
@@ -258,7 +333,7 @@ clawdbot logs -f | grep wecom
 
 ## 相关链接
 
-- [Clawdbot 官网](https://clawd.bot)
+- [OpenClaw 官网](https://openclaw.ai)
 - [企业微信开发文档](https://developer.work.weixin.qq.com/document/)
 - [企业微信消息加解密说明](https://developer.work.weixin.qq.com/document/path/90968)
 
@@ -272,4 +347,4 @@ MIT
 
 ## 致谢
 
-本插件由 [Clawdbot](https://clawd.bot) 社区开发维护。
+本插件由 [OpenClaw](https://openclaw.ai) 社区开发维护。

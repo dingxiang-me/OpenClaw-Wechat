@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-02-28
+
+### Changed
+- 插件元数据全面对齐 OpenClaw：`package.json`、`openclaw.plugin.json`、运行时版本统一为 `0.4.1`
+- `/status` 命令支持按当前账户显示，避免多账户场景下状态误报
+- callback 验签不再输出敏感 token 信息，日志仅保留账户与路由信息
+
+### Added
+- 多账户 webhook 路由：按 `webhookPath` 分组注册，并按签名动态匹配账户
+- 多账户同路径支持：同一路径下可通过不同 callback token/AES key 区分账户
+- 临时文件延迟清理机制：媒体文件保留 30 分钟后自动删除，兼容排队执行场景
+- `wecom:selfcheck` 自检脚本：校验配置、AES Key、`gettoken` 连通性与本地 webhook 健康
+- `wecom:selfcheck --all-accounts` 批量体检：一次检查全部已发现账户并支持 JSON 报告
+- `wecom:smoke` 回归脚本：串联语法检查、全账户体检、网关健康与状态摘要
+- `tests/wecom-core.test.mjs`：覆盖会话 key、去重、签名匹配、分段逻辑等核心回归
+- 并存排查文档：`docs/troubleshooting/coexistence.md`
+
+### Fixed
+- 修复旧实现只注册单一路由、导致 `channels.wecom.accounts` 实际不可用的问题
+- 修复 `pairing required/no deliverable reply` 场景下可能过早删除媒体临时文件的问题
+- AES key 增加长度校验，错误配置将明确报错（避免静默异常）
+- 修复部分场景下仅产生 block 回复导致用户“看起来无回复”的问题：现在会回退发送累计 block 文本
+- 修复长文本分段时的 `trim` 内容损失问题（保留原始空白与换行）
+
 ## [0.3.2] - 2026-01-29
 
 ### Added
