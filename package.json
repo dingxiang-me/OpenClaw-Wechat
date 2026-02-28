@@ -1,9 +1,9 @@
 {
-  "name": "@mijia-life/clawdbot-wecom",
-  "version": "0.3.1",
+  "name": "openclaw-wechat",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
-  "description": "WeCom (企业微信) channel plugin for Clawdbot (internal apps).",
+  "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "license": "MIT",
   "exports": "./src/index.js",
   "openclaw": {
@@ -24,6 +24,13 @@
         "wxwork"
       ]
     }
+  },
+  "scripts": {
+    "lint": "npm run test:syntax",
+    "test:syntax": "node -c src/index.js",
+    "test": "npm run test:syntax && node --test tests/*.test.mjs",
+    "wecom:selfcheck": "node ./scripts/wecom-selfcheck.mjs",
+    "wecom:smoke": "bash ./scripts/wecom-smoke.sh"
   },
   "dependencies": {
     "fast-xml-parser": "^5.3.5"

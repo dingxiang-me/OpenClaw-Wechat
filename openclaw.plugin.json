@@ -1,38 +1,105 @@
 {
-  "id": "clawdbot-wecom",
-  "name": "@mijia-life/clawdbot-wecom",
-  "version": "0.1.0",
-  "description": "WeCom (企业微信) channel plugin for Clawdbot (internal apps).",
+  "id": "openclaw-wechat",
+  "name": "OpenClaw-Wechat",
+  "version": "0.4.1",
+  "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
+  "channels": ["wecom"],
   "extensions": ["./src/index.js"],
   "configSchema": {
     "type": "object",
+    "additionalProperties": false,
     "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "是否启用 WeCom 渠道"
+      },
       "corpId": {
         "type": "string",
+        "minLength": 1,
         "description": "企业微信 Corp ID"
       },
       "corpSecret": {
         "type": "string",
-        "description": "企业微信 Corp Secret"
+        "minLength": 1,
+        "description": "企业微信 Corp Secret",
+        "x-sensitive": true
       },
       "agentId": {
-        "type": "number",
+        "oneOf": [
+          { "type": "number" },
+          { "type": "string", "pattern": "^[0-9]+$" }
+        ],
         "description": "企业微信 Agent ID"
       },
       "callbackToken": {
         "type": "string",
-        "description": "回调 Token"
+        "minLength": 1,
+        "description": "回调 Token",
+        "x-sensitive": true
       },
       "callbackAesKey": {
         "type": "string",
-        "description": "回调 AES Key"
+        "minLength": 1,
+        "description": "回调 AES Key",
+        "x-sensitive": true
       },
       "webhookPath": {
         "type": "string",
         "description": "Webhook 路径",
         "default": "/wecom/callback"
+      },
+      "accounts": {
+        "type": "object",
+        "description": "多账户配置（键为账户 ID）",
+        "minProperties": 1,
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "corpId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "corpSecret": {
+              "type": "string",
+              "minLength": 1,
+              "x-sensitive": true
+            },
+            "agentId": {
+              "oneOf": [
+                { "type": "number" },
+                { "type": "string", "pattern": "^[0-9]+$" }
+              ]
+            },
+            "callbackToken": {
+              "type": "string",
+              "minLength": 1,
+              "x-sensitive": true
+            },
+            "callbackAesKey": {
+              "type": "string",
+              "minLength": 1,
+              "x-sensitive": true
+            },
+            "webhookPath": {
+              "type": "string",
+              "default": "/wecom/callback"
+            }
+          },
+          "required": ["corpId", "corpSecret", "agentId"]
+        }
       }
     }
+  },
+  "uiHints": {
+    "corpSecret": { "sensitive": true },
+    "callbackToken": { "sensitive": true },
+    "callbackAesKey": { "sensitive": true }
   },
   "channel": {
     "id": "wecom",
