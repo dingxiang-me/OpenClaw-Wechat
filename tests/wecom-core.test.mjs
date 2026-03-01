@@ -253,3 +253,33 @@ test("resolveWecomDebounceConfig applies bounds and defaults", () => {
   assert.equal(debounce.windowMs, 100);
   assert.equal(debounce.maxBatch, 50);
 });
+
+test("resolveWecomStreamingConfig applies bounds and env fallback", () => {
+  const fromConfig = core.resolveWecomStreamingConfig({
+    channelConfig: {
+      streaming: {
+        enabled: true,
+        minChars: 1,
+        minIntervalMs: 999999,
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(fromConfig.enabled, true);
+  assert.equal(fromConfig.minChars, 20);
+  assert.equal(fromConfig.minIntervalMs, 10000);
+
+  const fromEnv = core.resolveWecomStreamingConfig({
+    channelConfig: {},
+    envVars: {
+      WECOM_STREAMING_ENABLED: "true",
+      WECOM_STREAMING_MIN_CHARS: "180",
+      WECOM_STREAMING_MIN_INTERVAL_MS: "1500",
+    },
+    processEnv: {},
+  });
+  assert.equal(fromEnv.enabled, true);
+  assert.equal(fromEnv.minChars, 180);
+  assert.equal(fromEnv.minIntervalMs, 1500);
+});

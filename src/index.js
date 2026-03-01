@@ -23,6 +23,7 @@ import {
   resolveWecomCommandPolicyConfig,
   resolveWecomDebounceConfig,
   resolveWecomGroupChatConfig,
+  resolveWecomStreamingConfig,
   resolveVoiceTranscriptionConfig,
   resolveWecomProxyConfig,
   shouldTriggerWecomGroupResponse,
@@ -38,7 +39,7 @@ const xmlParser = new XMLParser({
 
 // 请求体大小限制 (1MB)
 const MAX_REQUEST_BODY_SIZE = 1024 * 1024;
-const PLUGIN_VERSION = "0.4.7";
+const PLUGIN_VERSION = "0.4.8";
 const WECOM_TEMP_DIR_NAME = "openclaw-wechat";
 const WECOM_TEMP_FILE_RETENTION_MS = 30 * 60 * 1000;
 const FFMPEG_PATH_CHECK_CACHE = {
@@ -1470,6 +1471,10 @@ function resolveWecomTextDebouncePolicy(api) {
   return resolveWecomDebounceConfig(resolveWecomPolicyInputs(api));
 }
 
+function resolveWecomReplyStreamingPolicy(api) {
+  return resolveWecomStreamingConfig(resolveWecomPolicyInputs(api));
+}
+
 function buildTextDebounceBufferKey({ accountId, fromUser, chatId, isGroupChat }) {
   const account = String(accountId ?? "default").trim().toLowerCase() || "default";
   const user = String(fromUser ?? "").trim().toLowerCase();
@@ -1863,6 +1868,7 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
   const allowFromPolicy = resolveWecomAllowFromPolicy(api, config?.accountId, config);
   const groupPolicy = resolveWecomGroupChatPolicy(api);
   const debouncePolicy = resolveWecomTextDebouncePolicy(api);
+  const streamingPolicy = resolveWecomReplyStreamingPolicy(api);
   const proxyEnabled = Boolean(config?.outboundProxy);
   const voiceStatusLine = voiceConfig.enabled
     ? `✅ 语音消息转写（本地 ${voiceConfig.provider}，模型: ${voiceConfig.modelPath || voiceConfig.model}）`
@@ -1882,6 +1888,9 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
   const debouncePolicyLine = debouncePolicy.enabled
     ? `✅ 文本防抖合并已启用（${debouncePolicy.windowMs}ms / 最多 ${debouncePolicy.maxBatch} 条）`
     : "ℹ️ 文本防抖合并未启用";
+  const streamingPolicyLine = streamingPolicy.enabled
+    ? `✅ 流式回复已启用（最小片段 ${streamingPolicy.minChars} 字符 / 最短间隔 ${streamingPolicy.minIntervalMs}ms）`
+    : "ℹ️ 流式回复未启用";
 
   const statusText = `📊 系统状态
 
@@ -1903,6 +1912,7 @@ ${commandPolicyLine}
 ${allowFromPolicyLine}
 ${groupPolicyLine}
 ${debouncePolicyLine}
+${streamingPolicyLine}
 ${proxyEnabled ? "✅ WeCom 出站代理已启用" : "ℹ️ WeCom 出站代理未启用"}
 ${voiceStatusLine}`;
 
@@ -2327,11 +2337,18 @@ async function processInboundMessage({
     // 对标 Telegram 的 dispatchReplyWithBufferedBlockDispatcher
 
     let hasDeliveredReply = false;
+    let hasDeliveredPartialReply = false;
     let hasSentProgressNotice = false;
     let blockTextFallback = "";
+    let streamChunkBuffer = "";
+    let streamChunkLastSentAt = 0;
+    let streamChunkSentCount = 0;
+    let streamChunkSendChain = Promise.resolve();
     let suppressLateDispatcherDeliveries = false;
     let progressNoticeTimer = null;
     let lateReplyWatcherPromise = null;
+    const streamingPolicy = resolveWecomReplyStreamingPolicy(api);
+    const streamingEnabled = streamingPolicy.enabled === true;
     const replyTimeoutMs = Math.max(
       15000,
       asNumber(cfg?.env?.vars?.WECOM_REPLY_TIMEOUT_MS ?? requireEnv("WECOM_REPLY_TIMEOUT_MS"), 90000),
@@ -2359,8 +2376,51 @@ async function processInboundMessage({
     );
     const processingNoticeText = "消息已收到，正在处理中，请稍等片刻。";
     const queuedNoticeText = "上一条消息仍在处理中，你的新消息已加入队列，请稍等片刻。";
+    const enqueueStreamingChunk = async (text, reason = "stream") => {
+      const chunkText = String(text ?? "").trim();
+      if (!chunkText || hasDeliveredReply) return;
+      hasDeliveredPartialReply = true;
+      streamChunkSendChain = streamChunkSendChain
+        .then(async () => {
+          await sendWecomText({
+            corpId,
+            corpSecret,
+            agentId,
+            toUser: fromUser,
+            text: chunkText,
+            logger: api.logger,
+            proxyUrl,
+          });
+          streamChunkLastSentAt = Date.now();
+          streamChunkSentCount += 1;
+          api.logger.info?.(
+            `wecom: streamed block chunk ${streamChunkSentCount} (${reason}), bytes=${getByteLength(chunkText)}`,
+          );
+        })
+        .catch((streamErr) => {
+          api.logger.warn?.(`wecom: failed to send streaming block chunk: ${String(streamErr)}`);
+        });
+      await streamChunkSendChain;
+    };
+    const flushStreamingBuffer = async ({ force = false, reason = "stream" } = {}) => {
+      if (!streamingEnabled || hasDeliveredReply) return false;
+      const pendingText = String(streamChunkBuffer ?? "");
+      const candidate = markdownToWecomText(pendingText).trim();
+      if (!candidate) return false;
+
+      const minChars = Math.max(20, Number(streamingPolicy.minChars || 120));
+      const minIntervalMs = Math.max(200, Number(streamingPolicy.minIntervalMs || 1200));
+      if (!force) {
+        if (candidate.length < minChars) return false;
+        if (Date.now() - streamChunkLastSentAt < minIntervalMs) return false;
+      }
+
+      streamChunkBuffer = "";
+      await enqueueStreamingChunk(candidate, reason);
+      return true;
+    };
     const sendProgressNotice = async (text = processingNoticeText) => {
-      if (hasDeliveredReply || hasSentProgressNotice) return;
+      if (hasDeliveredReply || hasDeliveredPartialReply || hasSentProgressNotice) return;
       hasSentProgressNotice = true;
       await sendWecomText({
         corpId,
@@ -2387,7 +2447,7 @@ async function processInboundMessage({
       });
     };
     const startLateReplyWatcher = async (reason = "pending-final") => {
-      if (hasDeliveredReply || lateReplyWatcherPromise) return;
+      if (hasDeliveredReply || hasDeliveredPartialReply || lateReplyWatcherPromise) return;
 
       const watchStartedAt = Date.now();
       const watchId = `${sessionId}:${msgId || watchStartedAt}:${Math.random().toString(36).slice(2, 8)}`;
@@ -2508,6 +2568,10 @@ async function processInboundMessage({
                 if (payload.text) {
                   if (blockTextFallback) blockTextFallback += "\n";
                   blockTextFallback += payload.text;
+                  if (streamingEnabled) {
+                    streamChunkBuffer += payload.text;
+                    await flushStreamingBuffer({ force: false, reason: "block" });
+                  }
                 }
                 return;
               }
@@ -2521,6 +2585,35 @@ async function processInboundMessage({
                 }
 
                 api.logger.info?.(`wecom: delivering ${info.kind} reply, length=${payload.text.length}`);
+                if (streamingEnabled) {
+                  await flushStreamingBuffer({ force: true, reason: "final" });
+                  await streamChunkSendChain;
+                  if (streamChunkSentCount > 0) {
+                    const finalText = markdownToWecomText(payload.text).trim();
+                    const streamedText = markdownToWecomText(blockTextFallback).trim();
+                    const tailText =
+                      finalText && streamedText && finalText.startsWith(streamedText)
+                        ? finalText.slice(streamedText.length).trim()
+                        : "";
+                    if (tailText) {
+                      await sendWecomText({
+                        corpId,
+                        corpSecret,
+                        agentId,
+                        toUser: fromUser,
+                        text: tailText,
+                        logger: api.logger,
+                        proxyUrl,
+                      });
+                    }
+                    hasDeliveredReply = true;
+                    api.logger.info?.(
+                      `wecom: streaming reply completed for ${fromUser}, chunks=${streamChunkSentCount}${tailText ? " +tail" : ""}`,
+                    );
+                    return;
+                  }
+                }
+
                 // 应用 Markdown 转换
                 const formattedReply = markdownToWecomText(payload.text);
                 await sendWecomText({
@@ -2559,15 +2652,20 @@ async function processInboundMessage({
             },
           },
           replyOptions: {
-            // 禁用流式响应，因为企业微信不支持编辑消息
-            disableBlockStreaming: true,
+            // 企业微信不支持编辑消息；开启流式时会以“多条文本消息”模拟增量输出。
+            disableBlockStreaming: !streamingEnabled,
           },
         }),
         replyTimeoutMs,
         `dispatch timed out after ${replyTimeoutMs}ms`,
       );
 
-      if (!hasDeliveredReply) {
+      if (streamingEnabled) {
+        await flushStreamingBuffer({ force: true, reason: "post-dispatch" });
+        await streamChunkSendChain;
+      }
+
+      if (!hasDeliveredReply && !hasDeliveredPartialReply) {
         const blockText = String(blockTextFallback || "").trim();
         if (blockText) {
           await sendWecomText({
@@ -2584,7 +2682,7 @@ async function processInboundMessage({
         }
       }
 
-      if (!hasDeliveredReply) {
+      if (!hasDeliveredReply && !hasDeliveredPartialReply) {
         const counts = dispatchResult?.counts ?? {};
         const queuedFinal = dispatchResult?.queuedFinal === true;
         const deliveredCount = Number(counts.final ?? 0) + Number(counts.block ?? 0) + Number(counts.tool ?? 0);

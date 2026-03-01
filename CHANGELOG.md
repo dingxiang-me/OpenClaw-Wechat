@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.8] - 2026-03-02
+
+### Added
+- 新增 WeCom 可配置流式回复：`channels.wecom.streaming.*` / `WECOM_STREAMING_*`
+- 新增流式参数：最小增量字符数（`minChars`）与最短发送间隔（`minIntervalMs`）
+- 新增核心测试覆盖流式配置解析与边界收敛
+
+### Changed
+- WeCom 回复链路接入 block 增量发送（以多条文本消息模拟流式，适配企业微信不可编辑消息限制）
+- `/status` 命令新增流式回复状态展示
+- 文档与示例同步新增流式配置（`README.md`、`.env.example`、`openclaw.plugin.json`）
+
 ## [0.4.7] - 2026-03-02
 
 ### Added

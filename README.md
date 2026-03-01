@@ -158,6 +158,11 @@ openclaw plugins install openclaw-wechat
         "windowMs": 1200,
         "maxBatch": 6
       },
+      "streaming": {
+        "enabled": true,
+        "minChars": 120,
+        "minIntervalMs": 1200
+      },
       "voiceTranscription": {
         "enabled": true,
         "provider": "local-whisper-cli",
@@ -335,6 +340,12 @@ npm run wecom:smoke
 - `channels.wecom.debounce.windowMs`：防抖窗口（默认 `1200`，范围 `100-10000`）
 - `channels.wecom.debounce.maxBatch`：单批最大合并条数（默认 `6`，范围 `1-50`）
 
+### 流式回复（可选）
+
+- `channels.wecom.streaming.enabled`：启用后按增量分段回包（企业微信不支持编辑消息，故用多条消息模拟流式）
+- `channels.wecom.streaming.minChars`：最小增量字符数（默认 `120`，范围 `20-2000`）
+- `channels.wecom.streaming.minIntervalMs`：最短发送间隔（默认 `1200`ms，范围 `200-10000`）
+
 ### 超时后异步补发
 
 - 当 `dispatch` 超时或会话排队导致当前回调拿不到 final 时，插件会进入“异步补发”模式
@@ -378,6 +389,9 @@ npm run wecom:smoke
 | `WECOM_DEBOUNCE_ENABLED` | 否 | 是否启用文本防抖合并（默认 false） |
 | `WECOM_DEBOUNCE_WINDOW_MS` | 否 | 防抖窗口毫秒（默认 1200） |
 | `WECOM_DEBOUNCE_MAX_BATCH` | 否 | 单次最多合并条数（默认 6） |
+| `WECOM_STREAMING_ENABLED` | 否 | 是否启用流式回复（默认 false） |
+| `WECOM_STREAMING_MIN_CHARS` | 否 | 单次流式发送最小字符数（默认 120） |
+| `WECOM_STREAMING_MIN_INTERVAL_MS` | 否 | 流式发送最短间隔毫秒（默认 1200） |
 | `WECOM_LATE_REPLY_WATCH_MS` | 否 | dispatch 超时/排队后，异步补发最终回复的最长等待时间（默认 180000） |
 | `WECOM_LATE_REPLY_POLL_MS` | 否 | 异步补发轮询间隔毫秒（默认 2000） |
 | `WECOM_VOICE_TRANSCRIBE_ENABLED` | 否 | 是否启用语音转写回退（默认 true） |

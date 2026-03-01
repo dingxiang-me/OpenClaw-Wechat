@@ -524,6 +524,38 @@ export function resolveWecomDebounceConfig({
   };
 }
 
+export function resolveWecomStreamingConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const streamingConfig =
+    channelConfig?.streaming && typeof channelConfig.streaming === "object" ? channelConfig.streaming : {};
+  const enabled = parseBooleanLike(
+    streamingConfig.enabled,
+    parseBooleanLike(envVars?.WECOM_STREAMING_ENABLED, parseBooleanLike(processEnv?.WECOM_STREAMING_ENABLED, false)),
+  );
+  const minChars = asBoundedPositiveInteger(
+    streamingConfig.minChars ?? envVars?.WECOM_STREAMING_MIN_CHARS ?? processEnv?.WECOM_STREAMING_MIN_CHARS,
+    120,
+    20,
+    2000,
+  );
+  const minIntervalMs = asBoundedPositiveInteger(
+    streamingConfig.minIntervalMs ??
+      envVars?.WECOM_STREAMING_MIN_INTERVAL_MS ??
+      processEnv?.WECOM_STREAMING_MIN_INTERVAL_MS,
+    1200,
+    200,
+    10000,
+  );
+  return {
+    enabled,
+    minChars,
+    minIntervalMs,
+  };
+}
+
 function readVoiceEnv(envVars, processEnv, suffix) {
   const keys = [`WECOM_VOICE_TRANSCRIBE_${suffix}`, `WECOM_VOICE_${suffix}`];
   for (const key of keys) {

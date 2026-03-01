@@ -1,7 +1,7 @@
 {
   "id": "openclaw-wechat",
   "name": "OpenClaw-Wechat",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "channels": [
     "wecom"
@@ -154,6 +154,32 @@
             "maximum": 50,
             "default": 6,
             "description": "单次最多合并消息条数"
+          }
+        }
+      },
+      "streaming": {
+        "type": "object",
+        "description": "流式回复策略（通过多条文本消息模拟增量输出）",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否启用流式回复（默认关闭，保持兼容）"
+          },
+          "minChars": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 2000,
+            "default": 120,
+            "description": "最小增量字符数，达到后才发送下一段"
+          },
+          "minIntervalMs": {
+            "type": "integer",
+            "minimum": 200,
+            "maximum": 10000,
+            "default": 1200,
+            "description": "两次增量发送的最短间隔（毫秒）"
           }
         }
       },
