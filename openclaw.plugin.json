@@ -1,7 +1,7 @@
 {
   "id": "openclaw-wechat",
   "name": "OpenClaw-Wechat",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "channels": [
     "wecom"
@@ -61,6 +61,89 @@
       "outboundProxy": {
         "type": "string",
         "description": "可选：WeCom 出站 API 代理（如 http://127.0.0.1:7890）"
+      },
+      "adminUsers": {
+        "type": "array",
+        "description": "管理员用户 ID（可绕过指令白名单）",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "commands": {
+        "type": "object",
+        "description": "指令白名单控制（启用后仅允许 allowlist 内的 / 指令）",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否启用指令白名单（默认关闭，保持兼容）"
+          },
+          "allowlist": {
+            "type": "array",
+            "description": "允许的指令列表（如 /status、/new）",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "rejectMessage": {
+            "type": "string",
+            "description": "命中未授权指令时返回给用户的提示文本"
+          }
+        }
+      },
+      "groupChat": {
+        "type": "object",
+        "description": "群聊触发策略",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "是否启用群聊消息处理"
+          },
+          "requireMention": {
+            "type": "boolean",
+            "default": false,
+            "description": "群聊是否必须包含 @ 提及才触发"
+          },
+          "mentionPatterns": {
+            "type": "array",
+            "description": "提及匹配关键字（默认 ['@']）",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "debounce": {
+        "type": "object",
+        "description": "文本消息防抖合并",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否启用文本防抖（默认关闭，保持兼容）"
+          },
+          "windowMs": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 10000,
+            "default": 1200,
+            "description": "防抖窗口（毫秒）"
+          },
+          "maxBatch": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 6,
+            "description": "单次最多合并消息条数"
+          }
+        }
       },
       "voiceTranscription": {
         "type": "object",

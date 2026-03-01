@@ -21,14 +21,15 @@
 - [x] 语音消息转文字（优先企业微信 Recognition，缺失时自动回退 STT）
 
 ### 用户体验
-- [x] 命令系统（/help、/status、/clear）
+- [x] 命令系统（/help、/status、/clear）+ 指令白名单/管理员绕过
 - [x] Markdown 格式自动转换
 - [x] 长消息自动分段（2048 字符限制）
+- [x] 文本防抖合并（短时间多条消息自动合并）
 - [x] API 限流保护
 
 ### 高级功能
 - [x] 多账户支持
-- [x] 群聊支持
+- [x] 群聊支持（可配置仅 @ 时触发）
 - [x] Token 并发安全
 - [x] wecom:selfcheck 一键自检
 - [x] WeCom API 出站代理（`WECOM_PROXY` / `channels.wecom.outboundProxy`）
@@ -125,6 +126,33 @@ openclaw plugins install openclaw-wechat
       "callbackAesKey": "默认账户EncodingAESKey",
       "webhookPath": "/wecom/callback",
       "outboundProxy": "http://127.0.0.1:7890",
+      "adminUsers": [
+        "dingxiang"
+      ],
+      "commands": {
+        "enabled": true,
+        "allowlist": [
+          "/help",
+          "/status",
+          "/reset",
+          "/new",
+          "/compact"
+        ],
+        "rejectMessage": "该指令未开放，请联系管理员。"
+      },
+      "groupChat": {
+        "enabled": true,
+        "requireMention": true,
+        "mentionPatterns": [
+          "@",
+          "@机器人"
+        ]
+      },
+      "debounce": {
+        "enabled": true,
+        "windowMs": 1200,
+        "maxBatch": 6
+      },
       "voiceTranscription": {
         "enabled": true,
         "provider": "local-whisper-cli",
@@ -276,6 +304,22 @@ npm run wecom:smoke
 | `/status` | 查看系统状态（含账户信息） |
 | `/clear` | 重置会话（等价于 `/reset`） |
 
+可选策略（默认关闭，保持兼容）：
+- `channels.wecom.commands.enabled=true` 后，仅允许 `allowlist` 中的 `/` 指令
+- `channels.wecom.adminUsers` 可配置管理员用户 ID，绕过白名单限制
+
+### 群聊触发策略
+
+- `channels.wecom.groupChat.enabled`：是否处理群聊消息（默认 `true`）
+- `channels.wecom.groupChat.requireMention`：是否要求命中 `@` 才触发（默认 `false`）
+- `channels.wecom.groupChat.mentionPatterns`：提及匹配关键字列表（默认 `["@"]`）
+
+### 文本防抖合并
+
+- `channels.wecom.debounce.enabled`：启用后在窗口期内合并多条文本再投递给模型
+- `channels.wecom.debounce.windowMs`：防抖窗口（默认 `1200`，范围 `100-10000`）
+- `channels.wecom.debounce.maxBatch`：单批最大合并条数（默认 `6`，范围 `1-50`）
+
 ### 支持的消息类型
 
 | 类型 | 接收 | 发送 | 说明 |
@@ -299,6 +343,16 @@ npm run wecom:smoke
 | `WECOM_WEBHOOK_PATH` | 否 | Webhook 路径，默认 `/wecom/callback` |
 | `WECOM_PROXY` | 否 | WeCom API 出站代理 URL（如 `http://127.0.0.1:7890`） |
 | `WECOM_<ACCOUNT>_PROXY` | 否 | 指定账户专用代理（优先级高于 `WECOM_PROXY`） |
+| `WECOM_ADMIN_USERS` | 否 | 管理员用户 ID 列表（逗号分隔），可绕过命令白名单 |
+| `WECOM_COMMANDS_ENABLED` | 否 | 是否启用命令白名单（默认 false） |
+| `WECOM_COMMANDS_ALLOWLIST` | 否 | 允许的命令列表（逗号分隔） |
+| `WECOM_COMMANDS_REJECT_MESSAGE` | 否 | 未授权命令时回复文案 |
+| `WECOM_GROUP_CHAT_ENABLED` | 否 | 是否启用群聊消息处理（默认 true） |
+| `WECOM_GROUP_CHAT_REQUIRE_MENTION` | 否 | 群聊是否要求 mention 才触发（默认 false） |
+| `WECOM_GROUP_CHAT_MENTION_PATTERNS` | 否 | mention 关键字列表（逗号分隔） |
+| `WECOM_DEBOUNCE_ENABLED` | 否 | 是否启用文本防抖合并（默认 false） |
+| `WECOM_DEBOUNCE_WINDOW_MS` | 否 | 防抖窗口毫秒（默认 1200） |
+| `WECOM_DEBOUNCE_MAX_BATCH` | 否 | 单次最多合并条数（默认 6） |
 | `WECOM_VOICE_TRANSCRIBE_ENABLED` | 否 | 是否启用语音转写回退（默认 true） |
 | `WECOM_VOICE_TRANSCRIBE_PROVIDER` | 否 | 本地提供方：`local-whisper-cli` / `local-whisper` |
 | `WECOM_VOICE_TRANSCRIBE_COMMAND` | 否 | 本地命令路径（默认按 provider 自动探测） |

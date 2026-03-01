@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.5] - 2026-03-01
+
+### Added
+- 新增命令白名单策略：`channels.wecom.commands.*` 与 `WECOM_COMMANDS_*`
+- 新增管理员绕过配置：`channels.wecom.adminUsers` 与 `WECOM_ADMIN_USERS`
+- 新增群聊触发策略：`channels.wecom.groupChat.*` 与 `WECOM_GROUP_CHAT_*`
+- 新增文本防抖合并：`channels.wecom.debounce.*` 与 `WECOM_DEBOUNCE_*`
+- 新增核心测试覆盖命令解析、策略配置和防抖配置边界
+
+### Changed
+- 文本入站链路接入防抖调度；命令消息优先直通，自动冲刷队列
+- `/status` 增加命令白名单、群聊触发、防抖状态展示
+- 版本升级为 `0.4.5`
+
+### Fixed
+- 修复新策略已实现但未接入主处理链路的问题（文本仍走旧路径）
+- 修复群聊场景下命令判定偏差（支持先去除 mention 再识别 `/` 指令）
+
 ## [0.4.4] - 2026-03-01
 
 ### Added

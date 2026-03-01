@@ -17,8 +17,14 @@ import {
   isLocalVoiceInputTypeDirectlySupported,
   normalizeAudioContentType,
   pickAudioFileExtension,
+  extractLeadingSlashCommand,
+  resolveWecomCommandPolicyConfig,
+  resolveWecomDebounceConfig,
+  resolveWecomGroupChatConfig,
   resolveVoiceTranscriptionConfig,
   resolveWecomProxyConfig,
+  shouldTriggerWecomGroupResponse,
+  stripWecomGroupMentions,
   splitWecomText,
   pickAccountBySignature,
 } from "./core.js";
@@ -30,7 +36,7 @@ const xmlParser = new XMLParser({
 
 // 请求体大小限制 (1MB)
 const MAX_REQUEST_BODY_SIZE = 1024 * 1024;
-const PLUGIN_VERSION = "0.4.4";
+const PLUGIN_VERSION = "0.4.5";
 const WECOM_TEMP_DIR_NAME = "openclaw-wechat";
 const WECOM_TEMP_FILE_RETENTION_MS = 30 * 60 * 1000;
 const FFMPEG_PATH_CHECK_CACHE = {
@@ -40,6 +46,7 @@ const FFMPEG_PATH_CHECK_CACHE = {
 const COMMAND_PATH_CHECK_CACHE = new Map();
 const WECOM_PROXY_DISPATCHER_CACHE = new Map();
 const INVALID_PROXY_CACHE = new Set();
+const TEXT_MESSAGE_DEBOUNCE_BUFFERS = new Map();
 
 function readRequestBody(req, maxSize = MAX_REQUEST_BODY_SIZE) {
   return new Promise((resolve, reject) => {
@@ -1288,6 +1295,128 @@ function groupAccountsByWebhookPath(api) {
   return grouped;
 }
 
+function resolveWecomPolicyInputs(api) {
+  const cfg = api?.config ?? gatewayRuntime?.config ?? {};
+  return {
+    channelConfig: cfg?.channels?.wecom ?? {},
+    envVars: cfg?.env?.vars ?? {},
+    processEnv: process.env,
+  };
+}
+
+function resolveWecomCommandPolicy(api) {
+  return resolveWecomCommandPolicyConfig(resolveWecomPolicyInputs(api));
+}
+
+function resolveWecomGroupChatPolicy(api) {
+  return resolveWecomGroupChatConfig(resolveWecomPolicyInputs(api));
+}
+
+function resolveWecomTextDebouncePolicy(api) {
+  return resolveWecomDebounceConfig(resolveWecomPolicyInputs(api));
+}
+
+function buildTextDebounceBufferKey({ accountId, fromUser, chatId, isGroupChat }) {
+  const account = String(accountId ?? "default").trim().toLowerCase() || "default";
+  const user = String(fromUser ?? "").trim().toLowerCase();
+  const group = String(chatId ?? "").trim().toLowerCase();
+  if (isGroupChat) {
+    return `${account}:group:${group || "unknown"}:user:${user || "unknown"}`;
+  }
+  return `${account}:dm:${user || "unknown"}`;
+}
+
+function dispatchTextPayload(api, payload, reason = "direct") {
+  messageProcessLimiter
+    .execute(() => processInboundMessage(payload))
+    .catch((err) => {
+      api.logger.error?.(`wecom: async text processing failed (${reason}): ${err.message}`);
+    });
+}
+
+function flushTextDebounceBuffer(api, debounceKey, reason = "timer") {
+  const buffered = TEXT_MESSAGE_DEBOUNCE_BUFFERS.get(debounceKey);
+  if (!buffered) return;
+
+  TEXT_MESSAGE_DEBOUNCE_BUFFERS.delete(debounceKey);
+  if (buffered.timer) clearTimeout(buffered.timer);
+  const mergedContent = buffered.messages.join("\n").trim();
+  if (!mergedContent) return;
+
+  api.logger.info?.(
+    `wecom: flushing debounced text buffer key=${debounceKey} count=${buffered.messages.length} reason=${reason}`,
+  );
+  dispatchTextPayload(
+    api,
+    {
+      ...buffered.basePayload,
+      msgType: "text",
+      content: mergedContent,
+      msgId: buffered.msgIds[0] ?? buffered.basePayload.msgId ?? "",
+    },
+    `debounce:${reason}`,
+  );
+}
+
+function scheduleTextInboundProcessing(api, basePayload, content) {
+  const text = String(content ?? "");
+  let commandProbeText = text;
+  if (basePayload?.isGroupChat) {
+    const groupPolicy = resolveWecomGroupChatPolicy(api);
+    commandProbeText = stripWecomGroupMentions(commandProbeText, groupPolicy.mentionPatterns);
+  }
+  const command = extractLeadingSlashCommand(commandProbeText);
+  const debounceConfig = resolveWecomTextDebouncePolicy(api);
+  const debounceKey = buildTextDebounceBufferKey(basePayload);
+
+  if (command) {
+    flushTextDebounceBuffer(api, debounceKey, "command-priority");
+    dispatchTextPayload(api, { ...basePayload, content: text, msgType: "text" }, "command");
+    return;
+  }
+
+  if (!debounceConfig.enabled) {
+    dispatchTextPayload(api, { ...basePayload, content: text, msgType: "text" }, "direct");
+    return;
+  }
+
+  const existing = TEXT_MESSAGE_DEBOUNCE_BUFFERS.get(debounceKey);
+  if (!existing) {
+    const timer = setTimeout(() => {
+      flushTextDebounceBuffer(api, debounceKey, "window-expired");
+    }, debounceConfig.windowMs);
+    timer.unref?.();
+
+    TEXT_MESSAGE_DEBOUNCE_BUFFERS.set(debounceKey, {
+      basePayload,
+      messages: [text],
+      msgIds: [basePayload.msgId ?? ""],
+      timer,
+      updatedAt: Date.now(),
+    });
+    api.logger.info?.(
+      `wecom: buffered text message key=${debounceKey} count=1 windowMs=${debounceConfig.windowMs}`,
+    );
+    return;
+  }
+
+  if (existing.timer) clearTimeout(existing.timer);
+  existing.messages.push(text);
+  existing.msgIds.push(basePayload.msgId ?? "");
+  existing.updatedAt = Date.now();
+
+  if (existing.messages.length >= debounceConfig.maxBatch) {
+    flushTextDebounceBuffer(api, debounceKey, "max-batch");
+    return;
+  }
+
+  existing.timer = setTimeout(() => {
+    flushTextDebounceBuffer(api, debounceKey, "window-expired");
+  }, debounceConfig.windowMs);
+  existing.timer.unref?.();
+  TEXT_MESSAGE_DEBOUNCE_BUFFERS.set(debounceKey, existing);
+}
+
 export default function register(api) {
   // 保存 runtime 引用
   gatewayRuntime = api.runtime;
@@ -1453,11 +1582,7 @@ export default function register(api) {
 
           // 异步处理消息，不阻塞响应
           if (msgType === "text" && msgObj?.Content) {
-            messageProcessLimiter.execute(() =>
-              processInboundMessage({ ...basePayload, content: msgObj.Content, msgType: "text" })
-            ).catch((err) => {
-              api.logger.error?.(`wecom: async text processing failed: ${err.message}`);
-            });
+            scheduleTextInboundProcessing(api, basePayload, msgObj.Content);
           } else if (msgType === "image" && msgObj?.MediaId) {
             messageProcessLimiter.execute(() =>
               processInboundMessage({
@@ -1580,10 +1705,24 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
   const config = getWecomConfig(api, accountId);
   const accountIds = listWecomAccountIds(api);
   const voiceConfig = resolveWecomVoiceTranscriptionConfig(api);
+  const commandPolicy = resolveWecomCommandPolicy(api);
+  const groupPolicy = resolveWecomGroupChatPolicy(api);
+  const debouncePolicy = resolveWecomTextDebouncePolicy(api);
   const proxyEnabled = Boolean(config?.outboundProxy);
   const voiceStatusLine = voiceConfig.enabled
     ? `✅ 语音消息转写（本地 ${voiceConfig.provider}，模型: ${voiceConfig.modelPath || voiceConfig.model}）`
     : "⚠️ 语音消息转写回退未启用（仅使用企业微信 Recognition）";
+  const commandPolicyLine = commandPolicy.enabled
+    ? `✅ 指令白名单已启用（${commandPolicy.allowlist.length} 条，管理员 ${commandPolicy.adminUsers.length} 人）`
+    : "ℹ️ 指令白名单未启用";
+  const groupPolicyLine = groupPolicy.enabled
+    ? groupPolicy.requireMention
+      ? "✅ 群聊触发：仅 @ 命中后处理"
+      : "✅ 群聊触发：无需 @（全部处理）"
+    : "⚠️ 群聊处理未启用";
+  const debouncePolicyLine = debouncePolicy.enabled
+    ? `✅ 文本防抖合并已启用（${debouncePolicy.windowMs}ms / 最多 ${debouncePolicy.maxBatch} 条）`
+    : "ℹ️ 文本防抖合并未启用";
 
   const statusText = `📊 系统状态
 
@@ -1601,6 +1740,9 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
 ✅ Markdown 转换
 ✅ API 限流
 ✅ 多账户支持
+${commandPolicyLine}
+${groupPolicyLine}
+${debouncePolicyLine}
 ${proxyEnabled ? "✅ WeCom 出站代理已启用" : "ℹ️ WeCom 出站代理未启用"}
 ${voiceStatusLine}`;
 
@@ -1661,28 +1803,69 @@ async function processInboundMessage({
     let commandBody = originalContent;
     api.logger.info?.(`wecom: processing ${msgType} message for session ${sessionId}${isGroupChat ? " (group)" : ""}`);
 
+    // 群聊触发策略（仅对文本消息）
+    if (msgType === "text" && isGroupChat) {
+      const groupChatPolicy = resolveWecomGroupChatPolicy(api);
+      if (!groupChatPolicy.enabled) {
+        api.logger.info?.(`wecom: group chat processing disabled, skipped chatId=${chatId || "unknown"}`);
+        return;
+      }
+      if (!shouldTriggerWecomGroupResponse(commandBody, groupChatPolicy)) {
+        api.logger.info?.(
+          `wecom: group message skipped by trigger policy chatId=${chatId || "unknown"} requireMention=${groupChatPolicy.requireMention}`,
+        );
+        return;
+      }
+      commandBody = stripWecomGroupMentions(commandBody, groupChatPolicy.mentionPatterns);
+      if (!commandBody.trim()) {
+        api.logger.info?.(`wecom: group message became empty after mention strip chatId=${chatId || "unknown"}`);
+        return;
+      }
+    }
+
     // 命令检测（仅对文本消息）
-    if (msgType === "text" && commandBody.startsWith("/")) {
-      const commandKey = commandBody.split(/\s+/)[0].toLowerCase();
+    if (msgType === "text") {
+      let commandKey = extractLeadingSlashCommand(commandBody);
       if (commandKey === "/clear") {
         api.logger.info?.("wecom: translating /clear to native /reset command");
-        commandBody = "/reset";
+        commandBody = commandBody.replace(/^\/clear\b/i, "/reset");
+        commandKey = "/reset";
       }
-      const handler = COMMANDS[commandKey];
-      if (handler) {
-        api.logger.info?.(`wecom: handling command ${commandKey}`);
-        await handler({
-          api,
-          fromUser,
-          corpId,
-          corpSecret,
-          agentId,
-          accountId: config.accountId || "default",
-          proxyUrl,
-          chatId,
-          isGroupChat,
-        });
-        return; // 命令已处理，不再调用 AI
+      if (commandKey) {
+        const commandPolicy = resolveWecomCommandPolicy(api);
+        const isAdminUser = commandPolicy.adminUsers.includes(String(fromUser ?? "").trim().toLowerCase());
+        const commandAllowed =
+          commandPolicy.allowlist.includes(commandKey) ||
+          (commandKey === "/reset" && commandPolicy.allowlist.includes("/clear"));
+        if (commandPolicy.enabled && !isAdminUser && !commandAllowed) {
+          api.logger.info?.(`wecom: command blocked by allowlist user=${fromUser} command=${commandKey}`);
+          await sendWecomText({
+            corpId,
+            corpSecret,
+            agentId,
+            toUser: fromUser,
+            text: commandPolicy.rejectMessage,
+            logger: api.logger,
+            proxyUrl,
+          });
+          return;
+        }
+        const handler = COMMANDS[commandKey];
+        if (handler) {
+          api.logger.info?.(`wecom: handling command ${commandKey}`);
+          await handler({
+            api,
+            fromUser,
+            corpId,
+            corpSecret,
+            agentId,
+            accountId: config.accountId || "default",
+            proxyUrl,
+            chatId,
+            isGroupChat,
+          });
+          return; // 命令已处理，不再调用 AI
+        }
       }
     }
 

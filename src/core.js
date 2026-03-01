@@ -32,6 +32,14 @@ const AUDIO_CONTENT_TYPE_TO_EXTENSION = Object.freeze({
   "audio/x-wav": ".wav",
   "audio/x-flac": ".flac",
 });
+const DEFAULT_COMMAND_ALLOWLIST = Object.freeze([
+  "/help",
+  "/status",
+  "/clear",
+  "/reset",
+  "/new",
+  "/compact",
+]);
 
 const inboundMessageDedupe = new Map();
 
@@ -209,6 +217,12 @@ function asPositiveInteger(value, fallback) {
   return Math.floor(n);
 }
 
+function asBoundedPositiveInteger(value, fallback, minimum, maximum) {
+  const n = asPositiveInteger(value, fallback);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(minimum, Math.min(maximum, n));
+}
+
 function parseBooleanLike(value, fallback) {
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") return fallback;
@@ -217,6 +231,197 @@ function parseBooleanLike(value, fallback) {
   if (TRUE_LIKE_VALUES.has(normalized)) return true;
   if (FALSE_LIKE_VALUES.has(normalized)) return false;
   return fallback;
+}
+
+function parseStringList(...values) {
+  const out = [];
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const trimmed = String(item ?? "").trim();
+        if (trimmed) out.push(trimmed);
+      }
+      continue;
+    }
+    if (typeof value === "string") {
+      for (const part of value.split(/[,\n]/)) {
+        const trimmed = part.trim();
+        if (trimmed) out.push(trimmed);
+      }
+    }
+  }
+  return out;
+}
+
+function uniqueLowerCaseList(values) {
+  const deduped = new Set();
+  for (const raw of values) {
+    const normalized = String(raw ?? "").trim().toLowerCase();
+    if (normalized) deduped.add(normalized);
+  }
+  return Array.from(deduped);
+}
+
+function normalizeCommandToken(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return "";
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
+function uniqueCommandList(values) {
+  const deduped = new Set();
+  for (const value of values) {
+    const normalized = normalizeCommandToken(value);
+    if (normalized) deduped.add(normalized);
+  }
+  return Array.from(deduped);
+}
+
+export function extractLeadingSlashCommand(text) {
+  const normalized = String(text ?? "").trim();
+  if (!normalized.startsWith("/")) return "";
+  const command = normalized.split(/\s+/)[0]?.trim().toLowerCase() ?? "";
+  return normalizeCommandToken(command);
+}
+
+export function resolveWecomCommandPolicyConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const commandConfig =
+    channelConfig?.commands && typeof channelConfig.commands === "object" ? channelConfig.commands : {};
+  const enabled = parseBooleanLike(
+    commandConfig.enabled,
+    parseBooleanLike(envVars?.WECOM_COMMANDS_ENABLED, parseBooleanLike(processEnv?.WECOM_COMMANDS_ENABLED, false)),
+  );
+  const configuredAllowlist = uniqueCommandList(
+    parseStringList(
+      commandConfig.allowlist,
+      envVars?.WECOM_COMMANDS_ALLOWLIST,
+      processEnv?.WECOM_COMMANDS_ALLOWLIST,
+    ),
+  );
+  const allowlist = configuredAllowlist.length > 0 ? configuredAllowlist : Array.from(DEFAULT_COMMAND_ALLOWLIST);
+  const adminUsers = uniqueLowerCaseList(
+    parseStringList(channelConfig?.adminUsers, envVars?.WECOM_ADMIN_USERS, processEnv?.WECOM_ADMIN_USERS),
+  );
+  const rejectMessage = pickFirstNonEmptyString(
+    commandConfig.rejectMessage,
+    envVars?.WECOM_COMMANDS_REJECT_MESSAGE,
+    processEnv?.WECOM_COMMANDS_REJECT_MESSAGE,
+    "该指令未开放，请联系管理员。",
+  );
+
+  return {
+    enabled,
+    allowlist,
+    adminUsers,
+    rejectMessage,
+  };
+}
+
+export function resolveWecomGroupChatConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const groupConfig =
+    channelConfig?.groupChat && typeof channelConfig.groupChat === "object" ? channelConfig.groupChat : {};
+  const enabled = parseBooleanLike(
+    groupConfig.enabled,
+    parseBooleanLike(envVars?.WECOM_GROUP_CHAT_ENABLED, parseBooleanLike(processEnv?.WECOM_GROUP_CHAT_ENABLED, true)),
+  );
+  const requireMention = parseBooleanLike(
+    groupConfig.requireMention,
+    parseBooleanLike(
+      envVars?.WECOM_GROUP_CHAT_REQUIRE_MENTION,
+      parseBooleanLike(processEnv?.WECOM_GROUP_CHAT_REQUIRE_MENTION, false),
+    ),
+  );
+  const mentionPatterns = parseStringList(
+    groupConfig.mentionPatterns,
+    envVars?.WECOM_GROUP_CHAT_MENTION_PATTERNS,
+    processEnv?.WECOM_GROUP_CHAT_MENTION_PATTERNS,
+    "@",
+  );
+  const dedupedPatterns = [];
+  const seen = new Set();
+  for (const pattern of mentionPatterns) {
+    const token = String(pattern ?? "").trim();
+    if (!token || seen.has(token)) continue;
+    seen.add(token);
+    dedupedPatterns.push(token);
+  }
+
+  return {
+    enabled,
+    requireMention,
+    mentionPatterns: dedupedPatterns.length > 0 ? dedupedPatterns : ["@"],
+  };
+}
+
+export function shouldTriggerWecomGroupResponse(content, groupChatConfig) {
+  if (groupChatConfig?.enabled === false) return false;
+  if (groupChatConfig?.requireMention !== true) return true;
+  const text = String(content ?? "");
+  if (!text.trim()) return false;
+  const patterns =
+    Array.isArray(groupChatConfig?.mentionPatterns) && groupChatConfig.mentionPatterns.length > 0
+      ? groupChatConfig.mentionPatterns
+      : ["@"];
+  return patterns.some((pattern) => text.includes(pattern));
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function stripWecomGroupMentions(content, mentionPatterns = ["@"]) {
+  let text = String(content ?? "");
+  const patterns = Array.isArray(mentionPatterns) && mentionPatterns.length > 0 ? mentionPatterns : ["@"];
+  for (const rawPattern of patterns) {
+    const pattern = String(rawPattern ?? "").trim();
+    if (!pattern) continue;
+    if (pattern === "@") {
+      // Remove "@name" mentions at start or after whitespace, avoid matching email addresses.
+      text = text.replace(/(^|\s)@[^\s@]+/g, "$1");
+      continue;
+    }
+    const escaped = escapeRegExp(pattern);
+    text = text.replace(new RegExp(escaped, "g"), " ");
+  }
+  return text.replace(/\s{2,}/g, " ").trim();
+}
+
+export function resolveWecomDebounceConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const debounceConfig =
+    channelConfig?.debounce && typeof channelConfig.debounce === "object" ? channelConfig.debounce : {};
+  const enabled = parseBooleanLike(
+    debounceConfig.enabled,
+    parseBooleanLike(envVars?.WECOM_DEBOUNCE_ENABLED, parseBooleanLike(processEnv?.WECOM_DEBOUNCE_ENABLED, false)),
+  );
+  const windowMs = asBoundedPositiveInteger(
+    debounceConfig.windowMs ?? envVars?.WECOM_DEBOUNCE_WINDOW_MS ?? processEnv?.WECOM_DEBOUNCE_WINDOW_MS,
+    1200,
+    100,
+    10000,
+  );
+  const maxBatch = asBoundedPositiveInteger(
+    debounceConfig.maxBatch ?? envVars?.WECOM_DEBOUNCE_MAX_BATCH ?? processEnv?.WECOM_DEBOUNCE_MAX_BATCH,
+    6,
+    1,
+    50,
+  );
+  return {
+    enabled,
+    windowMs,
+    maxBatch,
+  };
 }
 
 function readVoiceEnv(envVars, processEnv, suffix) {

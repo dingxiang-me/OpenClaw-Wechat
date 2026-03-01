@@ -149,3 +149,60 @@ test("resolveWecomProxyConfig supports account-specific env fallback", () => {
   });
   assert.equal(proxy, "http://sales-proxy:8080");
 });
+
+test("extractLeadingSlashCommand normalizes command key", () => {
+  assert.equal(core.extractLeadingSlashCommand("/STATUS"), "/status");
+  assert.equal(core.extractLeadingSlashCommand(" /new  test"), "/new");
+  assert.equal(core.extractLeadingSlashCommand("hello"), "");
+});
+
+test("resolveWecomCommandPolicyConfig reads admin and allowlist", () => {
+  const policy = core.resolveWecomCommandPolicyConfig({
+    channelConfig: {
+      adminUsers: ["Alice", "Bob"],
+      commands: {
+        enabled: true,
+        allowlist: ["status", "/new", " /compact "],
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(policy.enabled, true);
+  assert.deepEqual(policy.allowlist.sort(), ["/compact", "/new", "/status"].sort());
+  assert.deepEqual(policy.adminUsers.sort(), ["alice", "bob"]);
+});
+
+test("group mention helpers trigger and strip correctly", () => {
+  const groupCfg = core.resolveWecomGroupChatConfig({
+    channelConfig: {
+      groupChat: {
+        enabled: true,
+        requireMention: true,
+        mentionPatterns: ["@", "@AI助手"],
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(core.shouldTriggerWecomGroupResponse("@AI助手 /status", groupCfg), true);
+  assert.equal(core.shouldTriggerWecomGroupResponse("普通文本", groupCfg), false);
+  assert.equal(core.stripWecomGroupMentions("@AI助手 /status", groupCfg.mentionPatterns), "/status");
+});
+
+test("resolveWecomDebounceConfig applies bounds and defaults", () => {
+  const debounce = core.resolveWecomDebounceConfig({
+    channelConfig: {
+      debounce: {
+        enabled: true,
+        windowMs: 20,
+        maxBatch: 99,
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(debounce.enabled, true);
+  assert.equal(debounce.windowMs, 100);
+  assert.equal(debounce.maxBatch, 50);
+});
