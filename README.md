@@ -1,6 +1,6 @@
 # OpenClaw-Wechat 企业微信插件
 
-> 让你的 OpenClaw AI 助手接入企业微信，通过自建应用实现智能对话。
+> 让你的 OpenClaw AI 助手接入企业微信，支持自建应用（Agent）与 AI 机器人（Bot API）两种模式。
 > 接入企业微信后，可在个人微信进行对话（菜单：我的企业—微信插件，使用个人微信扫码）
 
 ## 功能特性
@@ -13,6 +13,7 @@
 - [x] 消息签名验证和 AES 加密解密
 - [x] Webhook URL 验证（企业微信回调配置）
 - [x] access_token 自动缓存和刷新（支持多账户）
+- [x] Bot API 模式原生 stream 回包（JSON 回调）
 
 ### 媒体功能
 - [x] 图片消息接收和 AI 识别（Vision 能力）
@@ -125,6 +126,14 @@ openclaw plugins install openclaw-wechat
       "callbackToken": "默认账户Token",
       "callbackAesKey": "默认账户EncodingAESKey",
       "webhookPath": "/wecom/callback",
+      "bot": {
+        "enabled": false,
+        "token": "Bot模式Token",
+        "encodingAesKey": "Bot模式EncodingAESKey",
+        "webhookPath": "/wecom/bot/callback",
+        "placeholderText": "消息已收到，正在处理中，请稍等片刻。",
+        "streamExpireMs": 600000
+      },
       "outboundProxy": "http://127.0.0.1:7890",
       "allowFrom": [
         "dingxiang",
@@ -340,9 +349,15 @@ npm run wecom:smoke
 - `channels.wecom.debounce.windowMs`：防抖窗口（默认 `1200`，范围 `100-10000`）
 - `channels.wecom.debounce.maxBatch`：单批最大合并条数（默认 `6`，范围 `1-50`）
 
-### 流式回复（可选）
+### Bot 模式原生流式（推荐）
 
-- `channels.wecom.streaming.enabled`：启用后按增量分段回包（企业微信不支持编辑消息，故用多条消息模拟流式）
+- `channels.wecom.bot.enabled=true` 且配置 `token`/`encodingAesKey` 后，启用企业微信 AI 机器人 API 模式
+- Bot 模式为 **JSON 回调 + `msgtype=stream` 原生流式协议**
+- 默认路径：`/wecom/bot/callback`
+
+### Agent 模式增量回包（可选，非原生 stream）
+
+- `channels.wecom.streaming.enabled`：启用后按增量分段回包（通过多条文本消息模拟）
 - `channels.wecom.streaming.minChars`：最小增量字符数（默认 `120`，范围 `20-2000`）
 - `channels.wecom.streaming.minIntervalMs`：最短发送间隔（默认 `1200`ms，范围 `200-10000`）
 
@@ -373,6 +388,12 @@ npm run wecom:smoke
 | `WECOM_CALLBACK_TOKEN` | 是 | 回调配置的 Token |
 | `WECOM_CALLBACK_AES_KEY` | 是 | 回调配置的 EncodingAESKey |
 | `WECOM_WEBHOOK_PATH` | 否 | Webhook 路径，默认 `/wecom/callback` |
+| `WECOM_BOT_ENABLED` | 否 | 是否启用 Bot API 模式（默认 false） |
+| `WECOM_BOT_TOKEN` | 否 | Bot API 模式 Token |
+| `WECOM_BOT_ENCODING_AES_KEY` | 否 | Bot API 模式 EncodingAESKey（43 位） |
+| `WECOM_BOT_WEBHOOK_PATH` | 否 | Bot API 回调路径（默认 `/wecom/bot/callback`） |
+| `WECOM_BOT_PLACEHOLDER_TEXT` | 否 | Bot 流式初始占位文本 |
+| `WECOM_BOT_STREAM_EXPIRE_MS` | 否 | Bot 流式会话保留毫秒（默认 600000） |
 | `WECOM_PROXY` | 否 | WeCom API 出站代理 URL（如 `http://127.0.0.1:7890`） |
 | `WECOM_<ACCOUNT>_PROXY` | 否 | 指定账户专用代理（优先级高于 `WECOM_PROXY`） |
 | `WECOM_ALLOW_FROM` | 否 | 允许发送者列表（逗号分隔，空表示不限制，支持 `*`） |

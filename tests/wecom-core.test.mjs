@@ -283,3 +283,56 @@ test("resolveWecomStreamingConfig applies bounds and env fallback", () => {
   assert.equal(fromEnv.minChars, 180);
   assert.equal(fromEnv.minIntervalMs, 1500);
 });
+
+test("resolveWecomBotModeConfig reads config and env fallback", () => {
+  const fromConfig = core.resolveWecomBotModeConfig({
+    channelConfig: {
+      bot: {
+        enabled: true,
+        token: "bot-token",
+        encodingAesKey: "abcdefghijklmnopqrstuvwxyz1234567890ABCDEFG",
+        webhookPath: "/bot/hook",
+        placeholderText: "thinking",
+        streamExpireMs: 9999999,
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(fromConfig.enabled, true);
+  assert.equal(fromConfig.token, "bot-token");
+  assert.equal(fromConfig.webhookPath, "/bot/hook");
+  assert.equal(fromConfig.placeholderText, "thinking");
+  assert.equal(fromConfig.streamExpireMs, 60 * 60 * 1000);
+
+  const fromEnv = core.resolveWecomBotModeConfig({
+    channelConfig: {},
+    envVars: {
+      WECOM_BOT_ENABLED: "true",
+      WECOM_BOT_TOKEN: "env-token",
+      WECOM_BOT_ENCODING_AES_KEY: "env-aes-key",
+      WECOM_BOT_WEBHOOK_PATH: "/env/bot",
+      WECOM_BOT_PLACEHOLDER_TEXT: "处理中",
+      WECOM_BOT_STREAM_EXPIRE_MS: "45000",
+    },
+    processEnv: {},
+  });
+  assert.equal(fromEnv.enabled, true);
+  assert.equal(fromEnv.token, "env-token");
+  assert.equal(fromEnv.encodingAesKey, "env-aes-key");
+  assert.equal(fromEnv.webhookPath, "/env/bot");
+  assert.equal(fromEnv.placeholderText, "处理中");
+  assert.equal(fromEnv.streamExpireMs, 45000);
+
+  const explicitEmpty = core.resolveWecomBotModeConfig({
+    channelConfig: {
+      bot: {
+        enabled: true,
+        placeholderText: "",
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(explicitEmpty.placeholderText, "");
+});

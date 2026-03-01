@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.9] - 2026-03-02
+
+### Added
+- 新增企业微信 AI 机器人 Bot 模式（JSON 回调）配置：`channels.wecom.bot.*` / `WECOM_BOT_*`
+- 新增 Bot 模式原生 stream 路由：支持 `msgtype=stream` 刷新请求与增量内容回包
+- 新增 Bot 流式会话状态管理与过期清理
+- 新增核心测试覆盖 Bot 模式配置解析与环境变量回退
+
+### Changed
+- 文档明确区分两种模式：
+  - Bot 模式：原生 stream（推荐）
+  - Agent 模式：多消息增量回包（非原生 stream）
+- `register` 启动逻辑支持 Bot-only 场景（无需自建应用账号也可加载路由）
+
 ## [0.4.8] - 2026-03-02
 
 ### Added

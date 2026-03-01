@@ -1,7 +1,7 @@
 {
   "id": "openclaw-wechat",
   "name": "OpenClaw-Wechat",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "channels": [
     "wecom"
@@ -57,6 +57,44 @@
         "type": "string",
         "description": "Webhook 路径",
         "default": "/wecom/callback"
+      },
+      "bot": {
+        "type": "object",
+        "description": "企业微信 AI 机器人（Bot API 模式）配置（JSON 回调 + 原生 stream）",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否启用 Bot 模式"
+          },
+          "token": {
+            "type": "string",
+            "description": "Bot 模式回调 Token"
+          },
+          "encodingAesKey": {
+            "type": "string",
+            "description": "Bot 模式回调 EncodingAESKey（43 位）",
+            "x-sensitive": true
+          },
+          "webhookPath": {
+            "type": "string",
+            "default": "/wecom/bot/callback",
+            "description": "Bot 模式 webhook 路径"
+          },
+          "placeholderText": {
+            "type": "string",
+            "default": "消息已收到，正在处理中，请稍等片刻。",
+            "description": "Bot 模式初始 stream 占位文本"
+          },
+          "streamExpireMs": {
+            "type": "integer",
+            "minimum": 30000,
+            "maximum": 3600000,
+            "default": 600000,
+            "description": "Bot 流式会话保留时长（毫秒）"
+          }
+        }
       },
       "outboundProxy": {
         "type": "string",
@@ -159,7 +197,7 @@
       },
       "streaming": {
         "type": "object",
-        "description": "流式回复策略（通过多条文本消息模拟增量输出）",
+        "description": "Agent 模式增量回包策略（通过多条文本消息模拟，非 Bot 原生 stream）",
         "additionalProperties": false,
         "properties": {
           "enabled": {
@@ -345,6 +383,12 @@
       "sensitive": true
     },
     "callbackAesKey": {
+      "sensitive": true
+    },
+    "bot.token": {
+      "sensitive": true
+    },
+    "bot.encodingAesKey": {
       "sensitive": true
     },
     "voiceTranscription.apiKey": {

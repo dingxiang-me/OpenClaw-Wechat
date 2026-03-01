@@ -556,6 +556,59 @@ export function resolveWecomStreamingConfig({
   };
 }
 
+export function resolveWecomBotModeConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const botConfig = channelConfig?.bot && typeof channelConfig.bot === "object" ? channelConfig.bot : {};
+  const enabled = parseBooleanLike(
+    botConfig.enabled,
+    parseBooleanLike(envVars?.WECOM_BOT_ENABLED, parseBooleanLike(processEnv?.WECOM_BOT_ENABLED, false)),
+  );
+  const token = pickFirstNonEmptyString(
+    botConfig.token,
+    envVars?.WECOM_BOT_TOKEN,
+    processEnv?.WECOM_BOT_TOKEN,
+  );
+  const encodingAesKey = pickFirstNonEmptyString(
+    botConfig.encodingAesKey,
+    envVars?.WECOM_BOT_ENCODING_AES_KEY,
+    processEnv?.WECOM_BOT_ENCODING_AES_KEY,
+  );
+  const webhookPath = pickFirstNonEmptyString(
+    botConfig.webhookPath,
+    envVars?.WECOM_BOT_WEBHOOK_PATH,
+    processEnv?.WECOM_BOT_WEBHOOK_PATH,
+    "/wecom/bot/callback",
+  );
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj ?? {}, key);
+  const placeholderText = (() => {
+    if (hasOwn(botConfig, "placeholderText")) return String(botConfig.placeholderText ?? "");
+    if (hasOwn(envVars, "WECOM_BOT_PLACEHOLDER_TEXT")) return String(envVars.WECOM_BOT_PLACEHOLDER_TEXT ?? "");
+    if (hasOwn(processEnv, "WECOM_BOT_PLACEHOLDER_TEXT"))
+      return String(processEnv.WECOM_BOT_PLACEHOLDER_TEXT ?? "");
+    return "消息已收到，正在处理中，请稍等片刻。";
+  })();
+  const streamExpireMs = asBoundedPositiveInteger(
+    botConfig.streamExpireMs ??
+      envVars?.WECOM_BOT_STREAM_EXPIRE_MS ??
+      processEnv?.WECOM_BOT_STREAM_EXPIRE_MS,
+    10 * 60 * 1000,
+    30 * 1000,
+    60 * 60 * 1000,
+  );
+
+  return {
+    enabled,
+    token: token || undefined,
+    encodingAesKey: encodingAesKey || undefined,
+    webhookPath: webhookPath || "/wecom/bot/callback",
+    placeholderText,
+    streamExpireMs,
+  };
+}
+
 function readVoiceEnv(envVars, processEnv, suffix) {
   const keys = [`WECOM_VOICE_TRANSCRIBE_${suffix}`, `WECOM_VOICE_${suffix}`];
   for (const key of keys) {
