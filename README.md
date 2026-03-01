@@ -17,7 +17,7 @@
 ### 媒体功能
 - [x] 图片消息接收和 AI 识别（Vision 能力）
 - [x] 图片消息发送
-- [x] 语音消息转文字（需开启企业微信语音识别）
+- [x] 语音消息转文字（优先企业微信 Recognition，缺失时自动回退 STT）
 
 ### 用户体验
 - [x] 命令系统（/help、/status、/clear）
@@ -36,6 +36,8 @@
 - [OpenClaw](https://openclaw.ai) 已安装并配置
 - 企业微信管理员权限
 - 公网可访问的服务器（用于接收回调）
+- 本地语音识别命令（推荐 `whisper-cli`，可选 `whisper`）
+- （推荐）`ffmpeg`，用于 AMR 等不兼容格式自动转码后再转写
 
 ## 安装
 
@@ -71,6 +73,8 @@ npm install
   }
 }
 ```
+
+说明：示例里的 `for-tests-ggml-tiny.bin` 仅用于快速验证，线上建议换成更高质量模型（如 `ggml-base` / `ggml-small`）。
 
 ### 方式二：npm 安装（即将支持）
 
@@ -117,7 +121,19 @@ openclaw plugins install openclaw-wechat
       "agentId": 1000004,
       "callbackToken": "默认账户Token",
       "callbackAesKey": "默认账户EncodingAESKey",
-      "webhookPath": "/wecom/callback"
+      "webhookPath": "/wecom/callback",
+      "voiceTranscription": {
+        "enabled": true,
+        "provider": "local-whisper-cli",
+        "command": "whisper-cli",
+        "modelPath": "/usr/local/opt/whisper-cpp/share/whisper-cpp/for-tests-ggml-tiny.bin",
+        "model": "base",
+        "language": "zh",
+        "timeoutMs": 120000,
+        "maxBytes": 10485760,
+        "ffmpegEnabled": true,
+        "transcodeToWav": true
+      }
     }
   }
 }
@@ -261,7 +277,7 @@ npm run wecom:smoke
 |------|------|------|------|
 | 文本 | ✅ | ✅ | 完全支持，自动分段 |
 | 图片 | ✅ | ✅ | 支持 Vision 识别 |
-| 语音 | ✅ | ❌ | 需开启企业微信语音识别 |
+| 语音 | ✅ | ❌ | 优先用企业微信 Recognition；否则插件走 STT 回退 |
 | 视频 | ✅ | ❌ | 接收后保存临时文件供 AI 处理 |
 | 文件 | ✅ | ❌ | 接收后保存临时文件供 AI 处理 |
 | 链接 | ✅ | ❌ | 支持标题/描述/URL 提取 |
@@ -276,6 +292,15 @@ npm run wecom:smoke
 | `WECOM_CALLBACK_TOKEN` | 是 | 回调配置的 Token |
 | `WECOM_CALLBACK_AES_KEY` | 是 | 回调配置的 EncodingAESKey |
 | `WECOM_WEBHOOK_PATH` | 否 | Webhook 路径，默认 `/wecom/callback` |
+| `WECOM_VOICE_TRANSCRIBE_ENABLED` | 否 | 是否启用语音转写回退（默认 true） |
+| `WECOM_VOICE_TRANSCRIBE_PROVIDER` | 否 | 本地提供方：`local-whisper-cli` / `local-whisper` |
+| `WECOM_VOICE_TRANSCRIBE_COMMAND` | 否 | 本地命令路径（默认按 provider 自动探测） |
+| `WECOM_VOICE_TRANSCRIBE_MODEL_PATH` | 否 | `whisper-cli` 模型路径（推荐显式配置） |
+| `WECOM_VOICE_TRANSCRIBE_MODEL` | 否 | `whisper` 模型名（默认 `base`） |
+| `WECOM_VOICE_TRANSCRIBE_TIMEOUT_MS` | 否 | 转写超时毫秒数（默认 120000） |
+| `WECOM_VOICE_TRANSCRIBE_MAX_BYTES` | 否 | 最大允许转写音频大小（默认 10MB） |
+| `WECOM_VOICE_TRANSCRIBE_FFMPEG_ENABLED` | 否 | 不兼容音频格式时是否允许 ffmpeg 转码 |
+| `WECOM_VOICE_TRANSCRIBE_TRANSCODE_TO_WAV` | 否 | 是否优先转码为 wav 再识别（默认 true） |
 
 ## 故障排查
 

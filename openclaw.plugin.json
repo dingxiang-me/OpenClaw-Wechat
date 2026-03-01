@@ -1,10 +1,14 @@
 {
   "id": "openclaw-wechat",
   "name": "OpenClaw-Wechat",
-  "version": "0.4.1",
+  "version": "0.4.3",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
-  "channels": ["wecom"],
-  "extensions": ["./src/index.js"],
+  "channels": [
+    "wecom"
+  ],
+  "extensions": [
+    "./src/index.js"
+  ],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -27,8 +31,13 @@
       },
       "agentId": {
         "oneOf": [
-          { "type": "number" },
-          { "type": "string", "pattern": "^[0-9]+$" }
+          {
+            "type": "number"
+          },
+          {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
         ],
         "description": "企业微信 Agent ID"
       },
@@ -48,6 +57,88 @@
         "type": "string",
         "description": "Webhook 路径",
         "default": "/wecom/callback"
+      },
+      "voiceTranscription": {
+        "type": "object",
+        "description": "语音转写回退配置（当企业微信 Recognition 缺失时使用）",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "是否启用插件侧语音转写回退"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "local-whisper-cli",
+              "local-whisper"
+            ],
+            "default": "local-whisper-cli",
+            "description": "本地转写提供方类型"
+          },
+          "command": {
+            "type": "string",
+            "description": "可选：本地转写命令（默认按 provider 自动探测）"
+          },
+          "apiBaseUrl": {
+            "type": "string",
+            "description": "已弃用：历史 OpenAI 转写配置，不再使用"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "已弃用：历史 OpenAI 转写配置，不再使用",
+            "x-sensitive": true
+          },
+          "apiKeyEnv": {
+            "type": "string",
+            "description": "已弃用：历史 OpenAI 转写配置，不再使用"
+          },
+          "modelPath": {
+            "type": "string",
+            "description": "local-whisper-cli 使用的本地模型文件路径（如 ggml/gguf）"
+          },
+          "model": {
+            "type": "string",
+            "default": "base",
+            "description": "local-whisper 使用的模型名（tiny/base/small/...）"
+          },
+          "language": {
+            "type": "string",
+            "description": "可选：转写语言（如 zh）"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "可选：转写提示词"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "default": 20000,
+            "description": "转写请求超时时间（毫秒）"
+          },
+          "maxBytes": {
+            "type": "integer",
+            "minimum": 262144,
+            "default": 10485760,
+            "description": "允许转写的最大音频大小（字节）"
+          },
+          "ffmpegEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "当音频格式不兼容时，是否允许使用 ffmpeg 转码到 wav"
+          },
+          "transcodeToWav": {
+            "type": "boolean",
+            "default": true,
+            "description": "是否优先将语音统一转码为 wav 再交给本地模型"
+          },
+          "requireModelPath": {
+            "type": "boolean",
+            "default": true,
+            "description": "local-whisper-cli 模式下是否强制要求配置 modelPath"
+          }
+        }
       },
       "accounts": {
         "type": "object",
@@ -72,8 +163,13 @@
             },
             "agentId": {
               "oneOf": [
-                { "type": "number" },
-                { "type": "string", "pattern": "^[0-9]+$" }
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
               ]
             },
             "callbackToken": {
@@ -91,15 +187,28 @@
               "default": "/wecom/callback"
             }
           },
-          "required": ["corpId", "corpSecret", "agentId"]
+          "required": [
+            "corpId",
+            "corpSecret",
+            "agentId"
+          ]
         }
       }
     }
   },
   "uiHints": {
-    "corpSecret": { "sensitive": true },
-    "callbackToken": { "sensitive": true },
-    "callbackAesKey": { "sensitive": true }
+    "corpSecret": {
+      "sensitive": true
+    },
+    "callbackToken": {
+      "sensitive": true
+    },
+    "callbackAesKey": {
+      "sensitive": true
+    },
+    "voiceTranscription.apiKey": {
+      "sensitive": true
+    }
   },
   "channel": {
     "id": "wecom",
@@ -109,6 +218,10 @@
     "docsLabel": "wecom",
     "blurb": "Enterprise WeChat internal app via callback + send API.",
     "order": 80,
-    "aliases": ["wework", "qiwei", "wxwork"]
+    "aliases": [
+      "wework",
+      "qiwei",
+      "wxwork"
+    ]
   }
 }

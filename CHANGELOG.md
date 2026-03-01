@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3] - 2026-03-01
+
+### Added
+- 新增语音转写回退链路：当企业微信回调未提供 `Recognition` 时，插件会自动下载语音并调用本地 `whisper-cli/whisper`
+- 新增 AMR/非兼容格式自动转码：支持用 `ffmpeg` 转为 `wav` 后再转写
+- 新增本地转写配置项：`channels.wecom.voiceTranscription.*`（provider/command/modelPath 等）
+- 新增语音相关核心测试：配置解析与音频格式判断
+
+### Changed
+- `/status` 命令新增语音转写状态展示（模型、启用状态）
+- 语音失败时改为主动回包错误原因，避免“无响应”体感
+- 版本升级为 `0.4.3`
+
+### Fixed
+- 修复本地语音转写临时文件过早清理问题：避免 `whisper-cli` 偶发读取不到输入文件（code 2）
+
 ## [0.4.1] - 2026-02-28
 
 ### Changed

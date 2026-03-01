@@ -12,6 +12,7 @@ This channel integrates OpenClaw with WeCom (企业微信) internal apps.
 - Inbound messages: text/image/voice/video/file/link
 - Outbound: text and image
 - Multi-account: supported (`channels.wecom.accounts`)
+- Voice recognition: WeCom `Recognition` first; local whisper fallback supported (`channels.wecom.voiceTranscription`)
 
 ## Callback URL
 

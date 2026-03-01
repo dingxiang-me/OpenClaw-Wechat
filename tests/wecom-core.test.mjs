@@ -55,3 +55,66 @@ test("pickAccountBySignature selects account by token", () => {
   });
   assert.equal(matched?.accountId, "b");
 });
+
+test("resolveVoiceTranscriptionConfig uses defaults", () => {
+  const voice = core.resolveVoiceTranscriptionConfig({
+    channelConfig: {},
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(voice.enabled, true);
+  assert.equal(voice.provider, "local-whisper-cli");
+  assert.equal(voice.model, "base");
+  assert.equal(voice.timeoutMs, 120000);
+  assert.equal(voice.maxBytes, 10 * 1024 * 1024);
+});
+
+test("resolveVoiceTranscriptionConfig reads command/model settings", () => {
+  const fromConfig = core.resolveVoiceTranscriptionConfig({
+    channelConfig: {
+      voiceTranscription: {
+        provider: "local-whisper",
+        command: "whisper",
+        model: "large-v3",
+        modelPath: "/models/ggml-base.bin",
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(fromConfig.provider, "local-whisper");
+  assert.equal(fromConfig.command, "whisper");
+  assert.equal(fromConfig.model, "large-v3");
+  assert.equal(fromConfig.modelPath, "/models/ggml-base.bin");
+
+  const fromEnv = core.resolveVoiceTranscriptionConfig({
+    channelConfig: {
+      voiceTranscription: {
+        provider: "local-whisper-cli",
+      },
+    },
+    envVars: {
+      WECOM_VOICE_TRANSCRIBE_MODEL_PATH: "/models/env.ggml",
+      WECOM_VOICE_TRANSCRIBE_COMMAND: "whisper-cli",
+    },
+    processEnv: {
+      WHISPER_MODEL_PATH: "/models/fallback.ggml",
+    },
+  });
+  assert.equal(fromEnv.command, "whisper-cli");
+  assert.equal(fromEnv.modelPath, "/models/env.ggml");
+});
+
+test("audio content type support helpers work for stt", () => {
+  assert.equal(core.isLocalVoiceInputTypeDirectlySupported("audio/wav"), true);
+  assert.equal(core.isLocalVoiceInputTypeDirectlySupported("audio/amr"), false);
+  assert.equal(core.normalizeAudioContentType(" audio/mpeg; charset=utf-8 "), "audio/mpeg");
+  assert.equal(
+    core.pickAudioFileExtension({ contentType: "audio/mpeg" }),
+    ".mp3",
+  );
+  assert.equal(
+    core.pickAudioFileExtension({ fileName: "voice.amr" }),
+    ".amr",
+  );
+});

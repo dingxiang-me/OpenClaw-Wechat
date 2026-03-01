@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import { normalizePluginHttpPath } from "openclaw/plugin-sdk";
-import { writeFile, unlink, mkdir } from "node:fs/promises";
+import { writeFile, unlink, mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, extname, join } from "node:path";
+import { spawn } from "node:child_process";
 import {
   WECOM_TEXT_BYTE_LIMIT,
   buildWecomSessionId,
@@ -12,6 +13,10 @@ import {
   resetInboundMessageDedupeForTests,
   computeMsgSignature,
   getByteLength,
+  isLocalVoiceInputTypeDirectlySupported,
+  normalizeAudioContentType,
+  pickAudioFileExtension,
+  resolveVoiceTranscriptionConfig,
   splitWecomText,
   pickAccountBySignature,
 } from "./core.js";
@@ -23,9 +28,14 @@ const xmlParser = new XMLParser({
 
 // 请求体大小限制 (1MB)
 const MAX_REQUEST_BODY_SIZE = 1024 * 1024;
-const PLUGIN_VERSION = "0.4.1";
+const PLUGIN_VERSION = "0.4.3";
 const WECOM_TEMP_DIR_NAME = "openclaw-wechat";
 const WECOM_TEMP_FILE_RETENTION_MS = 30 * 60 * 1000;
+const FFMPEG_PATH_CHECK_CACHE = {
+  checked: false,
+  available: false,
+};
+const COMMAND_PATH_CHECK_CACHE = new Map();
 
 function readRequestBody(req, maxSize = MAX_REQUEST_BODY_SIZE) {
   return new Promise((resolve, reject) => {
@@ -262,6 +272,343 @@ async function fetchWithRetry(url, options = {}, maxRetries = 3, initialDelay = 
     }
   }
   throw lastError || new Error(`Fetch failed after ${maxRetries} retries`);
+}
+
+function runProcessWithTimeout({ command, args, timeoutMs = 15000, allowNonZeroExitCode = false }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGKILL");
+          }, timeoutMs)
+        : null;
+
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+      if (stdout.length > 4000) stdout = stdout.slice(-4000);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+      if (stderr.length > 4000) stderr = stderr.slice(-4000);
+    });
+    child.on("error", (err) => {
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (code) => {
+      if (timer) clearTimeout(timer);
+      if (timedOut) {
+        reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+        return;
+      }
+      if (code !== 0 && !allowNonZeroExitCode) {
+        reject(new Error(`${command} exited with code ${code}: ${stderr.trim().slice(0, 500)}`));
+        return;
+      }
+      resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+    });
+  });
+}
+
+async function checkCommandAvailable(command) {
+  const normalized = String(command ?? "").trim();
+  if (!normalized) return false;
+  if (COMMAND_PATH_CHECK_CACHE.has(normalized)) {
+    return COMMAND_PATH_CHECK_CACHE.get(normalized);
+  }
+  try {
+    await runProcessWithTimeout({
+      command: normalized,
+      args: ["--help"],
+      timeoutMs: 4000,
+      allowNonZeroExitCode: true,
+    });
+    COMMAND_PATH_CHECK_CACHE.set(normalized, true);
+    return true;
+  } catch (err) {
+    COMMAND_PATH_CHECK_CACHE.set(normalized, false);
+    return false;
+  }
+}
+
+async function ensureFfmpegAvailable(logger) {
+  if (FFMPEG_PATH_CHECK_CACHE.checked) return FFMPEG_PATH_CHECK_CACHE.available;
+  const available = await checkCommandAvailable("ffmpeg");
+  FFMPEG_PATH_CHECK_CACHE.checked = true;
+  FFMPEG_PATH_CHECK_CACHE.available = available;
+  if (!available) {
+    logger?.warn?.("wecom: ffmpeg not available");
+  }
+  return available;
+}
+
+async function resolveLocalWhisperCommand({ voiceConfig, logger }) {
+  const provider = String(voiceConfig.provider ?? "").trim().toLowerCase();
+  const explicitCommand = String(voiceConfig.command ?? "").trim();
+  const fallbackCandidates =
+    provider === "local-whisper"
+      ? ["whisper"]
+      : provider === "local-whisper-cli"
+        ? ["whisper-cli"]
+        : [];
+  const candidates = explicitCommand ? [explicitCommand, ...fallbackCandidates] : fallbackCandidates;
+
+  if (candidates.length === 0) {
+    throw new Error(
+      `unsupported voice transcription provider: ${provider || "unknown"} (supported: local-whisper-cli/local-whisper)`,
+    );
+  }
+
+  for (const cmd of candidates) {
+    if (await checkCommandAvailable(cmd)) {
+      if (explicitCommand && cmd !== explicitCommand) {
+        logger?.warn?.(`wecom: voice command ${explicitCommand} unavailable, fallback to ${cmd}`);
+      }
+      return cmd;
+    }
+  }
+
+  throw new Error(`local transcription command not found: ${candidates.join(" / ")}`);
+}
+
+function resolveWecomVoiceTranscriptionConfig(api) {
+  const cfg = api?.config ?? {};
+  return resolveVoiceTranscriptionConfig({
+    channelConfig: cfg?.channels?.wecom,
+    envVars: cfg?.env?.vars ?? {},
+    processEnv: process.env,
+  });
+}
+
+async function transcodeAudioToWav({
+  buffer,
+  inputContentType,
+  inputFileName,
+  logger,
+  timeoutMs = 30000,
+}) {
+  const tempDir = join(tmpdir(), WECOM_TEMP_DIR_NAME);
+  await mkdir(tempDir, { recursive: true });
+  const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const inputExt = pickAudioFileExtension({ contentType: inputContentType, fileName: inputFileName });
+  const inputPath = join(tempDir, `voice-input-${nonce}${inputExt || ".bin"}`);
+  const outputPath = join(tempDir, `voice-output-${nonce}.wav`);
+
+  try {
+    await writeFile(inputPath, buffer);
+    await runProcessWithTimeout({
+      command: "ffmpeg",
+      args: [
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        inputPath,
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-f",
+        "wav",
+        outputPath,
+      ],
+      timeoutMs,
+    });
+    const outputBuffer = await readFile(outputPath);
+    logger?.info?.(`wecom: transcoded voice to wav size=${outputBuffer.length} bytes`);
+    return {
+      buffer: outputBuffer,
+      contentType: "audio/wav",
+      fileName: `voice-${Date.now()}.wav`,
+    };
+  } finally {
+    await Promise.allSettled([unlink(inputPath), unlink(outputPath)]);
+  }
+}
+
+async function transcribeWithWhisperCli({
+  command,
+  modelPath,
+  audioPath,
+  language,
+  prompt,
+  timeoutMs,
+}) {
+  if (!modelPath) {
+    throw new Error("local-whisper-cli requires voiceTranscription.modelPath");
+  }
+
+  const tempDir = join(tmpdir(), WECOM_TEMP_DIR_NAME);
+  await mkdir(tempDir, { recursive: true });
+  const outputBase = join(tempDir, `voice-whisper-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const outputTxt = `${outputBase}.txt`;
+
+  const args = ["-m", modelPath, "-f", audioPath, "-otxt", "-of", outputBase, "--no-prints"];
+  if (language) args.push("-l", language);
+  if (prompt) args.push("--prompt", prompt);
+
+  try {
+    await runProcessWithTimeout({
+      command,
+      args,
+      timeoutMs,
+    });
+    const transcript = String(await readFile(outputTxt, "utf8")).trim();
+    if (!transcript) {
+      throw new Error("whisper-cli transcription output is empty");
+    }
+    return transcript;
+  } finally {
+    await Promise.allSettled([unlink(outputTxt)]);
+  }
+}
+
+async function transcribeWithWhisperPython({
+  command,
+  model,
+  audioPath,
+  language,
+  prompt,
+  timeoutMs,
+}) {
+  const tempDir = join(tmpdir(), WECOM_TEMP_DIR_NAME);
+  await mkdir(tempDir, { recursive: true });
+  const audioBaseName = basename(audioPath, extname(audioPath));
+  const outputTxt = join(tempDir, `${audioBaseName}.txt`);
+
+  const args = [
+    audioPath,
+    "--model",
+    model || "base",
+    "--output_format",
+    "txt",
+    "--output_dir",
+    tempDir,
+    "--task",
+    "transcribe",
+  ];
+  if (language) args.push("--language", language);
+  if (prompt) args.push("--initial_prompt", prompt);
+
+  try {
+    await runProcessWithTimeout({
+      command,
+      args,
+      timeoutMs,
+    });
+    const transcript = String(await readFile(outputTxt, "utf8")).trim();
+    if (!transcript) {
+      throw new Error("whisper transcription output is empty");
+    }
+    return transcript;
+  } finally {
+    await Promise.allSettled([unlink(outputTxt)]);
+  }
+}
+
+async function transcribeInboundVoice({
+  api,
+  buffer,
+  contentType,
+  mediaId,
+  voiceConfig,
+}) {
+  if (!voiceConfig.enabled) {
+    throw new Error("voice transcription is disabled");
+  }
+
+  let audioBuffer = buffer;
+  let normalizedContentType = normalizeAudioContentType(contentType) || "application/octet-stream";
+  let fileName = `voice-${mediaId}${pickAudioFileExtension({
+    contentType: normalizedContentType,
+    fileName: `voice-${mediaId}`,
+  })}`;
+
+  if (audioBuffer.length > voiceConfig.maxBytes) {
+    throw new Error(`audio size ${audioBuffer.length} exceeds maxBytes ${voiceConfig.maxBytes}`);
+  }
+
+  const isWav = normalizedContentType === "audio/wav" || normalizedContentType === "audio/x-wav";
+  const unsupportedDirect = !isLocalVoiceInputTypeDirectlySupported(normalizedContentType);
+  const shouldTranscode = unsupportedDirect || (voiceConfig.transcodeToWav === true && !isWav);
+  if (shouldTranscode) {
+    if (!voiceConfig.ffmpegEnabled) {
+      throw new Error(
+        `content type ${normalizedContentType || "unknown"} requires ffmpeg conversion but ffmpegEnabled=false`,
+      );
+    }
+    const ffmpegAvailable = await ensureFfmpegAvailable(api.logger);
+    if (!ffmpegAvailable) {
+      throw new Error(
+        `unsupported content type ${normalizedContentType || "unknown"} and ffmpeg not available`,
+      );
+    }
+    const transcoded = await transcodeAudioToWav({
+      buffer: audioBuffer,
+      inputContentType: normalizedContentType,
+      inputFileName: fileName,
+      logger: api.logger,
+      timeoutMs: Math.max(10000, Math.min(voiceConfig.timeoutMs, 45000)),
+    });
+    audioBuffer = transcoded.buffer;
+    normalizedContentType = transcoded.contentType;
+    fileName = transcoded.fileName;
+  }
+
+  const command = await resolveLocalWhisperCommand({ voiceConfig, logger: api.logger });
+  const provider = String(voiceConfig.provider ?? "").trim().toLowerCase();
+
+  const tempDir = join(tmpdir(), WECOM_TEMP_DIR_NAME);
+  await mkdir(tempDir, { recursive: true });
+  const audioPath = join(
+    tempDir,
+    `voice-transcribe-${Date.now()}-${Math.random().toString(36).slice(2)}${pickAudioFileExtension({
+      contentType: normalizedContentType,
+      fileName,
+    })}`,
+  );
+
+  await writeFile(audioPath, audioBuffer);
+  try {
+    if (provider === "local-whisper-cli") {
+      if (voiceConfig.requireModelPath !== false && !voiceConfig.modelPath) {
+        throw new Error(
+          "voiceTranscription.modelPath is required for local-whisper-cli (or set requireModelPath=false)",
+        );
+      }
+      const transcript = await transcribeWithWhisperCli({
+        command,
+        modelPath: voiceConfig.modelPath,
+        audioPath,
+        language: voiceConfig.language,
+        prompt: voiceConfig.prompt,
+        timeoutMs: voiceConfig.timeoutMs,
+      });
+      return transcript;
+    }
+
+    if (provider === "local-whisper") {
+      const transcript = await transcribeWithWhisperPython({
+        command,
+        model: voiceConfig.model,
+        audioPath,
+        language: voiceConfig.language,
+        prompt: voiceConfig.prompt,
+        timeoutMs: voiceConfig.timeoutMs,
+      });
+      return transcript;
+    }
+
+    throw new Error(`unsupported local provider ${provider}`);
+  } finally {
+    await Promise.allSettled([unlink(audioPath)]);
+  }
 }
 
 // 简单的限流器，防止触发企业微信 API 限流
@@ -1013,6 +1360,10 @@ async function handleHelpCommand({ api, fromUser, corpId, corpSecret, agentId })
 async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId, accountId }) {
   const config = getWecomConfig(api, accountId);
   const accountIds = listWecomAccountIds(api);
+  const voiceConfig = resolveWecomVoiceTranscriptionConfig(api);
+  const voiceStatusLine = voiceConfig.enabled
+    ? `✅ 语音消息转写（本地 ${voiceConfig.provider}，模型: ${voiceConfig.modelPath || voiceConfig.model}）`
+    : "⚠️ 语音消息转写回退未启用（仅使用企业微信 Recognition）";
 
   const statusText = `📊 系统状态
 
@@ -1029,7 +1380,8 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
 ✅ 命令系统
 ✅ Markdown 转换
 ✅ API 限流
-✅ 多账户支持`;
+✅ 多账户支持
+${voiceStatusLine}`;
 
   await sendWecomText({ corpId, corpSecret, agentId, toUser: fromUser, text: statusText });
   return true;
@@ -1145,14 +1497,53 @@ async function processInboundMessage({
     // 处理语音消息
     if (msgType === "voice" && mediaId) {
       api.logger.info?.(`wecom: received voice message mediaId=${mediaId}`);
-
-      // 企业微信开启语音识别后，Recognition 字段会包含转写结果
-      if (recognition) {
-        api.logger.info?.(`wecom: voice recognition result: ${recognition.slice(0, 50)}...`);
-        messageText = `[语音消息] ${recognition}`;
+      const recognizedText = String(recognition ?? "").trim();
+      if (recognizedText) {
+        api.logger.info?.(`wecom: voice recognition result from WeCom: ${recognizedText.slice(0, 50)}...`);
+        messageText = `[语音消息转写]\n${recognizedText}`;
       } else {
-        // 没有开启语音识别，提示用户
-        messageText = "[用户发送了一条语音消息]\n\n请告诉用户目前暂不支持语音消息，建议发送文字消息。";
+        const voiceConfig = resolveWecomVoiceTranscriptionConfig(api);
+        if (!voiceConfig.enabled) {
+          api.logger.info?.("wecom: voice transcription fallback disabled; asking user to send text");
+          await sendWecomText({
+            corpId,
+            corpSecret,
+            agentId,
+            toUser: fromUser,
+            text: "语音识别未启用，请先开启企业微信语音识别，或直接发送文字消息。",
+            logger: api.logger,
+          });
+          return;
+        }
+
+        try {
+          const { buffer, contentType } = await downloadWecomMedia({ corpId, corpSecret, mediaId });
+          api.logger.info?.(
+            `wecom: downloaded voice media for transcription, size=${buffer.length}, type=${contentType || "unknown"}`,
+          );
+          const transcript = await transcribeInboundVoice({
+            api,
+            buffer,
+            contentType,
+            mediaId,
+            voiceConfig,
+          });
+          messageText = `[语音消息转写]\n${transcript}`;
+          api.logger.info?.(`wecom: voice transcribed via ${voiceConfig.model}: ${transcript.slice(0, 80)}...`);
+        } catch (voiceErr) {
+          api.logger.warn?.(`wecom: voice transcription failed: ${String(voiceErr?.message || voiceErr)}`);
+          await sendWecomText({
+            corpId,
+            corpSecret,
+            agentId,
+            toUser: fromUser,
+            text:
+              "语音识别失败，请稍后重试。\n" +
+              "如持续失败，请确认本地 whisper 命令可用、模型路径已配置，并已安装 ffmpeg。",
+            logger: api.logger,
+          });
+          return;
+        }
       }
     }
 
