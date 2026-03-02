@@ -17,6 +17,12 @@ import {
   parseWecomBotInboundMessage,
 } from "./wecom/webhook-adapter.js";
 import {
+  resolveWebhookBotSendUrl,
+  webhookSendFileBuffer,
+  webhookSendImage,
+  webhookSendText,
+} from "./wecom/webhook-bot.js";
+import {
   WECOM_TEXT_BYTE_LIMIT,
   buildWecomSessionId,
   buildInboundDedupeKey,
@@ -1127,6 +1133,90 @@ const apiLimiter = new RateLimiter({ maxConcurrent: 3, minInterval: 200 });
 // 消息处理限流器（最多2并发，适合 1GB 内存环境）
 const messageProcessLimiter = new RateLimiter({ maxConcurrent: 2, minInterval: 0 });
 
+function buildWecomMessageSendRequest({
+  accessToken,
+  agentId,
+  toUser,
+  toParty,
+  toTag,
+  chatId,
+  msgType,
+  payload,
+}) {
+  const isAppChat = Boolean(chatId);
+  if (!isAppChat && !toUser && !toParty && !toTag) {
+    throw new Error("missing WeCom target: need toUser/toParty/toTag/chatId");
+  }
+  if (isAppChat) {
+    return {
+      sendUrl: `https://qyapi.weixin.qq.com/cgi-bin/appchat/send?access_token=${encodeURIComponent(accessToken)}`,
+      body: {
+        chatid: chatId,
+        msgtype: msgType,
+        ...payload,
+        safe: 0,
+      },
+      isAppChat,
+    };
+  }
+  return {
+    sendUrl: `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`,
+    body: {
+      touser: toUser,
+      toparty: toParty,
+      totag: toTag,
+      msgtype: msgType,
+      agentid: agentId,
+      ...payload,
+      safe: 0,
+    },
+    isAppChat,
+  };
+}
+
+function resolveWebhookTargetConfig(rawWebhook) {
+  const normalized = String(rawWebhook ?? "").trim();
+  if (!normalized) return null;
+  if (/^key:/i.test(normalized)) {
+    const key = normalized.replace(/^key:/i, "").trim();
+    return key ? { key } : null;
+  }
+  if (/^https?:\/\//i.test(normalized)) {
+    return { url: normalized };
+  }
+  return { key: normalized };
+}
+
+async function sendWecomWebhookText({ webhook, text, logger, proxyUrl }) {
+  const target = resolveWebhookTargetConfig(webhook);
+  if (!target) {
+    throw new Error("invalid webhook target");
+  }
+  const sendUrl = resolveWebhookBotSendUrl({
+    url: target.url,
+    key: target.key,
+  });
+  if (!sendUrl) {
+    throw new Error("invalid webhook target url/key");
+  }
+  const dispatcher = attachWecomProxyDispatcher(sendUrl, {}, { proxyUrl, logger })?.dispatcher;
+  const chunks = splitWecomText(String(text ?? ""));
+  for (let i = 0; i < chunks.length; i++) {
+    await webhookSendText({
+      url: target.url,
+      key: target.key,
+      content: chunks[i],
+      timeoutMs: 15000,
+      dispatcher,
+      fetchImpl: fetch,
+    });
+    if (i < chunks.length - 1) {
+      await sleep(200);
+    }
+  }
+  logger?.info?.(`wecom: webhook text sent chunks=${chunks.length}`);
+}
+
 // 发送单条文本消息（内部函数，带限流）
 async function sendWecomTextSingle({
   corpId,
@@ -1142,27 +1232,18 @@ async function sendWecomTextSingle({
 }) {
   return apiLimiter.execute(async () => {
     const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger });
-
-    const sendUrl = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`;
-    const isAppChat = Boolean(chatId);
-    if (!isAppChat && !toUser && !toParty && !toTag) {
-      throw new Error("missing WeCom target: need toUser/toParty/toTag/chatId");
-    }
-    const body = isAppChat
-      ? {
-          chatid: chatId,
-          msgtype: "text",
-          text: { content: text },
-        }
-      : {
-          touser: toUser,
-          toparty: toParty,
-          totag: toTag,
-          msgtype: "text",
-          agentid: agentId,
-          text: { content: text },
-          safe: 0,
-        };
+    const { sendUrl, body, isAppChat } = buildWecomMessageSendRequest({
+      accessToken,
+      agentId,
+      toUser,
+      toParty,
+      toTag,
+      chatId,
+      msgType: "text",
+      payload: {
+        text: { content: text },
+      },
+    });
     const sendRes = await fetchWithRetry(
       sendUrl,
       {
@@ -1176,7 +1257,7 @@ async function sendWecomTextSingle({
     );
     const sendJson = await sendRes.json();
     if (sendJson?.errcode !== 0) {
-      throw new Error(`WeCom message/send failed: ${JSON.stringify(sendJson)}`);
+      throw new Error(`WeCom ${isAppChat ? "appchat/send" : "message/send"} failed: ${JSON.stringify(sendJson)}`);
     }
     const targetLabel = isAppChat ? `chat:${chatId}` : [toUser, toParty, toTag].filter(Boolean).join("|");
     logger?.info?.(`wecom: message sent ok (to=${targetLabel || "unknown"}, msgid=${sendJson?.msgid || "n/a"})`);
@@ -1263,27 +1344,18 @@ async function uploadWecomMedia({ corpId, corpSecret, type, buffer, filename, lo
 async function sendWecomImage({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl }) {
   return apiLimiter.execute(async () => {
     const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger });
-    const sendUrl = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`;
-
-    const isAppChat = Boolean(chatId);
-    if (!isAppChat && !toUser && !toParty && !toTag) {
-      throw new Error("missing WeCom target: need toUser/toParty/toTag/chatId");
-    }
-    const body = isAppChat
-      ? {
-          chatid: chatId,
-          msgtype: "image",
-          image: { media_id: mediaId },
-        }
-      : {
-          touser: toUser,
-          toparty: toParty,
-          totag: toTag,
-          msgtype: "image",
-          agentid: agentId,
-          image: { media_id: mediaId },
-          safe: 0,
-        };
+    const { sendUrl, body } = buildWecomMessageSendRequest({
+      accessToken,
+      agentId,
+      toUser,
+      toParty,
+      toTag,
+      chatId,
+      msgType: "image",
+      payload: {
+        image: { media_id: mediaId },
+      },
+    });
 
     const sendRes = await fetchWithRetry(
       sendUrl,
@@ -1322,31 +1394,23 @@ async function sendWecomVideo({
 }) {
   return apiLimiter.execute(async () => {
     const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger });
-    const sendUrl = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`;
-    const isAppChat = Boolean(chatId);
-    if (!isAppChat && !toUser && !toParty && !toTag) {
-      throw new Error("missing WeCom target: need toUser/toParty/toTag/chatId");
-    }
     const videoPayload = {
       media_id: mediaId,
       ...(title ? { title } : {}),
       ...(description ? { description } : {}),
     };
-    const body = isAppChat
-      ? {
-          chatid: chatId,
-          msgtype: "video",
-          video: videoPayload,
-        }
-      : {
-          touser: toUser,
-          toparty: toParty,
-          totag: toTag,
-          msgtype: "video",
-          agentid: agentId,
-          video: videoPayload,
-          safe: 0,
-        };
+    const { sendUrl, body } = buildWecomMessageSendRequest({
+      accessToken,
+      agentId,
+      toUser,
+      toParty,
+      toTag,
+      chatId,
+      msgType: "video",
+      payload: {
+        video: videoPayload,
+      },
+    });
     const sendRes = await fetchWithRetry(
       sendUrl,
       {
@@ -1370,26 +1434,18 @@ async function sendWecomVideo({
 async function sendWecomFile({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl }) {
   return apiLimiter.execute(async () => {
     const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger });
-    const sendUrl = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`;
-    const isAppChat = Boolean(chatId);
-    if (!isAppChat && !toUser && !toParty && !toTag) {
-      throw new Error("missing WeCom target: need toUser/toParty/toTag/chatId");
-    }
-    const body = isAppChat
-      ? {
-          chatid: chatId,
-          msgtype: "file",
-          file: { media_id: mediaId },
-        }
-      : {
-          touser: toUser,
-          toparty: toParty,
-          totag: toTag,
-          msgtype: "file",
-          agentid: agentId,
-          file: { media_id: mediaId },
-          safe: 0,
-        };
+    const { sendUrl, body } = buildWecomMessageSendRequest({
+      accessToken,
+      agentId,
+      toUser,
+      toParty,
+      toTag,
+      chatId,
+      msgType: "file",
+      payload: {
+        file: { media_id: mediaId },
+      },
+    });
     const sendRes = await fetchWithRetry(
       sendUrl,
       {
@@ -1601,6 +1657,85 @@ function normalizeOutboundMediaUrls({ mediaUrl, mediaUrls } = {}) {
   return out;
 }
 
+async function sendWecomWebhookMediaBatch({
+  webhook,
+  mediaUrl,
+  mediaUrls,
+  mediaType,
+  logger,
+  proxyUrl,
+  maxBytes = 20 * 1024 * 1024,
+} = {}) {
+  const target = resolveWebhookTargetConfig(webhook);
+  if (!target) {
+    throw new Error("invalid webhook target");
+  }
+  const sendUrl = resolveWebhookBotSendUrl({
+    url: target.url,
+    key: target.key,
+  });
+  if (!sendUrl) {
+    throw new Error("invalid webhook target url/key");
+  }
+  const dispatcher = attachWecomProxyDispatcher(sendUrl, {}, { proxyUrl, logger })?.dispatcher;
+  const candidates = normalizeOutboundMediaUrls({ mediaUrl, mediaUrls });
+  if (candidates.length === 0) {
+    return { total: 0, sentCount: 0, failed: [] };
+  }
+
+  let sentCount = 0;
+  const failed = [];
+  for (const candidate of candidates) {
+    try {
+      const mediaTarget = resolveWecomOutboundMediaTarget({
+        mediaUrl: candidate,
+        mediaType: candidates.length === 1 ? mediaType : undefined,
+      });
+      const { buffer } = await fetchMediaFromUrl(candidate, {
+        proxyUrl,
+        logger,
+        forceProxy: Boolean(proxyUrl),
+        maxBytes,
+      });
+      if (mediaTarget.type === "image") {
+        const base64 = buffer.toString("base64");
+        const md5 = crypto.createHash("md5").update(buffer).digest("hex");
+        await webhookSendImage({
+          url: target.url,
+          key: target.key,
+          base64,
+          md5,
+          timeoutMs: 15000,
+          dispatcher,
+          fetchImpl: fetch,
+        });
+      } else {
+        await webhookSendFileBuffer({
+          url: target.url,
+          key: target.key,
+          buffer,
+          filename: mediaTarget.filename,
+          timeoutMs: 15000,
+          dispatcher,
+          fetchImpl: fetch,
+        });
+      }
+      sentCount += 1;
+    } catch (err) {
+      failed.push({
+        url: candidate,
+        reason: String(err?.message || err),
+      });
+      logger?.warn?.(`wecom: webhook media send failed ${candidate}: ${String(err?.message || err)}`);
+    }
+  }
+  return {
+    total: candidates.length,
+    sentCount,
+    failed,
+  };
+}
+
 async function sendWecomOutboundMediaBatch({
   corpId,
   corpSecret,
@@ -1765,16 +1900,23 @@ const WecomChannelPlugin = {
       return { ok: true, to: target };
     },
     sendText: async ({ to, text, accountId }) => {
-      const config = getWecomConfig({ config: gatewayRuntime?.config }, accountId);
-      if (!config?.corpId || !config?.corpSecret || !config?.agentId) {
-        return { ok: false, error: new Error("WeCom not configured (check channels.wecom in openclaw.json)") };
-      }
       const target = normalizeWecomResolvedTarget(to);
       if (!target) {
         return { ok: false, error: new Error("WeCom target invalid") };
       }
+      const config = getWecomConfig({ config: gatewayRuntime?.config }, accountId);
       if (target.webhook) {
-        return { ok: false, error: new Error("Webhook target is not supported in this outbound path") };
+        await sendWecomWebhookText({
+          webhook: target.webhook,
+          text,
+          logger: gatewayRuntime?.logger,
+          proxyUrl: config?.outboundProxy,
+        });
+        gatewayRuntime?.logger?.info?.(`wecom: outbound sendText target=${formatWecomTargetForLog(target)}`);
+        return { ok: true, provider: "wecom-webhook" };
+      }
+      if (!config?.corpId || !config?.corpSecret || !config?.agentId) {
+        return { ok: false, error: new Error("WeCom not configured (check channels.wecom in openclaw.json)") };
       }
       await sendWecomText({
         corpId: config.corpId,
@@ -1796,15 +1938,47 @@ const WecomChannelPlugin = {
   inbound: {
     // 当消息需要回复时会调用这个方法
     deliverReply: async ({ to, text, accountId, mediaUrl, mediaUrls, mediaType }) => {
+      const target = normalizeWecomResolvedTarget(to);
+      if (!target) {
+        throw new Error("WeCom deliverReply target invalid");
+      }
       const config = getWecomConfig({ config: gatewayRuntime?.config }, accountId);
+      const proxyUrl = config?.outboundProxy;
+      if (target.webhook) {
+        const webhookMediaResult = await sendWecomWebhookMediaBatch({
+          webhook: target.webhook,
+          mediaUrl,
+          mediaUrls,
+          mediaType,
+          logger: gatewayRuntime?.logger,
+          proxyUrl,
+        });
+        if (webhookMediaResult.failed.length > 0) {
+          gatewayRuntime?.logger?.warn?.(
+            `wecom: webhook target failed to send ${webhookMediaResult.failed.length} media item(s)`,
+          );
+        }
+        if (text) {
+          await sendWecomWebhookText({
+            webhook: target.webhook,
+            text,
+            logger: gatewayRuntime?.logger,
+            proxyUrl,
+          });
+        }
+        if (
+          !text &&
+          webhookMediaResult.total > 0 &&
+          webhookMediaResult.sentCount === 0
+        ) {
+          throw new Error("WeCom webhook media send failed");
+        }
+        return { ok: true };
+      }
       if (!config?.corpId || !config?.corpSecret || !config?.agentId) {
         throw new Error("WeCom not configured (check channels.wecom in openclaw.json)");
       }
-      const { corpId, corpSecret, agentId, outboundProxy: proxyUrl } = config;
-      const target = normalizeWecomResolvedTarget(to);
-      if (!target || target.webhook) {
-        throw new Error("WeCom deliverReply target invalid");
-      }
+      const { corpId, corpSecret, agentId } = config;
 
       // 如果有媒体附件，先发送媒体
       const mediaResult = await sendWecomOutboundMediaBatch({
@@ -4363,4 +4537,6 @@ export const __internal = {
   getByteLength,
   computeMsgSignature,
   pickAccountBySignature,
+  buildWecomMessageSendRequest,
+  resolveWebhookTargetConfig,
 };

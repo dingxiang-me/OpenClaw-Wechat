@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - 新增 Bot `feedback.id` 透传：首包与 stream-refresh 回包可携带 feedback
 - 新增 WeCom 出站目标解析：支持 `user/group/party/tag` 目标格式
 - 新增动态 Agent workspace 模板播种：`dynamicAgent.workspaceTemplate` 在首条命中时自动复制 bootstrap 文件
+- 新增 `webhook` 目标直发能力：`outbound.sendText` 与 `inbound.deliverReply` 支持 `webhook:<url|key>` 文本/媒体回传
 
 ### Changed
 - P3 模块化拆分第一步：Bot 回包链路从 `src/index.js` 抽离到独立模块（保持行为兼容）
@@ -24,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - 文档补充 webhook/Bot 模式媒体回传能力说明（README/README.en/渠道文档）
 - Agent 最终回包支持媒体批量发送：可同时处理文本 + 媒体（含部分失败提示）
 - 移除仓库内 `docs/compare-sunnoy-gap.md`（仅保留本地副本）
+- `chat:wc...` / `group:wr...` 出站目标改为调用企业微信 `appchat/send`，避免旧路径兼容问题
 
 ## [0.5.0] - 2026-03-02
 

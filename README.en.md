@@ -207,9 +207,10 @@ Session key policy: default is one-user-one-session (`wecom:<userid>`).
 
 Outbound target formats:
 - `user`: `wecom:alice` / `user:alice`
-- `group`: `group:wrxxxx` / `chat:wcxxxx`
+- `group(chat)`: `group:wrxxxx` / `chat:wcxxxx` (uses `appchat/send`)
 - `party`: `party:2` / `dept:2`
 - `tag`: `tag:ops`
+- `webhook`: `webhook:https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx` or `webhook:key:xxx`
 
 ## Environment Variables
 

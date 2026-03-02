@@ -401,9 +401,10 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 ### 出站目标格式
 
 - `user`：`wecom:alice` / `user:alice`
-- `group`：`group:wrxxxx` / `chat:wcxxxx`
+- `group(chat)`：`group:wrxxxx` / `chat:wcxxxx`（自动走 `appchat/send`）
 - `party`：`party:2` / `dept:2`
 - `tag`：`tag:ops`
+- `webhook`：`webhook:https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx` 或 `webhook:key:xxx`
 
 ## 环境变量速查
 
