@@ -13,7 +13,9 @@ This channel integrates OpenClaw with WeCom (企业微信) internal apps.
 - Outbound: text and image
 - Multi-account: supported (`channels.wecom.accounts`)
 - Voice recognition: WeCom `Recognition` first; local whisper fallback supported (`channels.wecom.voiceTranscription`)
-- P0 delivery fallback chain: optional (`active_stream -> response_url -> webhook_bot -> agent_push`)
+- Delivery fallback chain: optional (`active_stream -> response_url -> webhook_bot -> agent_push`)
+- Group trigger mode: `direct` / `mention` / `keyword` (`channels.wecom.groupChat.triggerMode`)
+- Dynamic agent route mode: `deterministic` / `mapping` / `hybrid` (`channels.wecom.dynamicAgent.mode`)
 - Session queue / stream manager: optional (`channels.wecom.stream.manager`)
 - Bot timeout tuning: supported (`channels.wecom.bot.replyTimeoutMs`, `lateReplyWatchMs`, `lateReplyPollMs`)
 
@@ -98,6 +100,32 @@ All new switches are default-off for compatibility.
       "observability": {
         "enabled": true,
         "logPayloadMeta": true
+      }
+    }
+  }
+}
+```
+
+## P2 Routing Config (Recommended)
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "groupChat": {
+        "enabled": true,
+        "triggerMode": "direct",
+        "mentionPatterns": ["@", "@AI助手"],
+        "triggerKeywords": ["机器人", "AI助手"]
+      },
+      "dynamicAgent": {
+        "enabled": true,
+        "mode": "deterministic",
+        "idStrategy": "readable-hash",
+        "deterministicPrefix": "wecom",
+        "autoProvision": true,
+        "allowUnknownAgentId": true,
+        "forceAgentSessionKey": true
       }
     }
   }

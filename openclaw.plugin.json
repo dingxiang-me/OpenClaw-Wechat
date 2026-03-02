@@ -1,7 +1,7 @@
 {
   "id": "openclaw-wechat",
   "name": "OpenClaw-Wechat",
-  "version": "0.4.10",
+  "version": "0.5.0",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "channels": [
     "wecom"
@@ -289,14 +289,32 @@
             "default": true,
             "description": "是否启用群聊消息处理"
           },
+          "triggerMode": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "mention",
+              "keyword"
+            ],
+            "default": "direct",
+            "description": "群聊触发模式：direct=直接触发，mention=@触发，keyword=关键词触发"
+          },
           "requireMention": {
             "type": "boolean",
             "default": false,
-            "description": "群聊是否必须包含 @ 提及才触发"
+            "description": "兼容字段：等价于 triggerMode=mention（新配置优先使用 triggerMode）"
           },
           "mentionPatterns": {
             "type": "array",
             "description": "提及匹配关键字（默认 ['@']）",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "triggerKeywords": {
+            "type": "array",
+            "description": "triggerMode=keyword 时的关键词列表（命中任意一个即触发）",
             "items": {
               "type": "string",
               "minLength": 1
@@ -313,6 +331,43 @@
             "type": "boolean",
             "default": false,
             "description": "是否启用动态 Agent 路由"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "mapping",
+              "deterministic",
+              "hybrid"
+            ],
+            "default": "deterministic",
+            "description": "路由模式：mapping=纯映射，deterministic=确定性生成，hybrid=映射优先未命中再确定性生成"
+          },
+          "idStrategy": {
+            "type": "string",
+            "enum": [
+              "readable-hash"
+            ],
+            "default": "readable-hash",
+            "description": "确定性 Agent ID 生成策略"
+          },
+          "deterministicPrefix": {
+            "type": "string",
+            "default": "wecom",
+            "description": "确定性 Agent ID 前缀"
+          },
+          "autoProvision": {
+            "type": "boolean",
+            "default": true,
+            "description": "是否允许确定性模式下使用未预先声明的 agentId（由 OpenClaw 侧自动处理）"
+          },
+          "allowUnknownAgentId": {
+            "type": "boolean",
+            "default": true,
+            "description": "是否允许路由到不在 agents.list 的 agentId（高级选项）"
+          },
+          "workspaceTemplate": {
+            "type": "string",
+            "description": "可选：动态 Agent 初始化模板目录（预留字段）"
           },
           "defaultAgentId": {
             "type": "string",

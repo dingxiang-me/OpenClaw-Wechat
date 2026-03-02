@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-02
+
+### Added
+- 新增动态 Agent 路由模式：`channels.wecom.dynamicAgent.mode`（`deterministic` / `mapping` / `hybrid`）
+- 新增确定性 Agent ID 生成配置：`idStrategy`、`deterministicPrefix`、`autoProvision`、`allowUnknownAgentId`
+- 新增群聊触发模式：`channels.wecom.groupChat.triggerMode`（`direct` / `mention` / `keyword`）
+- 新增群聊关键词触发配置：`channels.wecom.groupChat.triggerKeywords`
+- 新增差异对比文档：`docs/compare-sunnoy-gap.md`
+
+### Changed
+- 动态路由核心改造：支持按用户/群确定性生成稳定 Agent 路由键
+- 回包路由器返回结构增强：新增 `deliveryPath`、`finalStatus` 与每层 `attempt` 的耗时/状态
+- 自建应用链路默认关闭“处理中/排队中”提示，仅保留异步补发观察链路
+- 状态输出增加动态路由 mode 与群聊触发模式可视化
+
+### Fixed
+- 修复群聊 direct 模式下不必要的 `@` 剥离导致命令识别偏差
+- 修复回包降级链路缺少可观测字段，导致问题定位成本高的问题
+
 ## [0.4.10] - 2026-03-02
 
 ### Added

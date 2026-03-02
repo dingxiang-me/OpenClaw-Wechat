@@ -97,17 +97,36 @@ export function createWecomDeliveryRouter({
     }
 
     const attempts = [];
+    const deliverStartedAt = Date.now();
     for (const layer of activeOrder) {
       const handler = handlers?.[layer];
       if (typeof handler !== "function") {
-        attempts.push({ layer, ok: false, reason: "no-handler" });
+        attempts.push({
+          layer,
+          ok: false,
+          status: "skipped",
+          reason: "no-handler",
+          durationMs: 0,
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+        });
         continue;
       }
 
+      const layerStartedAt = Date.now();
       try {
         const result = await handler({ text: content, traceId, meta });
+        const layerEndedAt = Date.now();
         if (result?.ok) {
-          const success = { layer, ok: true, meta: result?.meta ?? {} };
+          const success = {
+            layer,
+            ok: true,
+            status: "ok",
+            meta: result?.meta ?? {},
+            durationMs: Math.max(0, layerEndedAt - layerStartedAt),
+            startedAt: layerStartedAt,
+            endedAt: layerEndedAt,
+          };
           attempts.push(success);
           if (observabilityEnabled) {
             const metaLine = logPayloadMeta ? summarizeMeta({ ...meta, ...success.meta }) : "";
@@ -118,14 +137,21 @@ export function createWecomDeliveryRouter({
           return {
             ok: true,
             layer,
+            deliveryPath: layer,
+            finalStatus: attempts.length > 1 ? "degraded" : "ok",
             attempts,
+            totalDurationMs: Math.max(0, layerEndedAt - deliverStartedAt),
           };
         }
         const failed = {
           layer,
           ok: false,
+          status: "miss",
           reason: String(result?.reason ?? "rejected"),
           meta: result?.meta ?? {},
+          durationMs: Math.max(0, layerEndedAt - layerStartedAt),
+          startedAt: layerStartedAt,
+          endedAt: layerEndedAt,
         };
         attempts.push(failed);
         if (observabilityEnabled) {
@@ -134,10 +160,15 @@ export function createWecomDeliveryRouter({
           );
         }
       } catch (err) {
+        const layerEndedAt = Date.now();
         const failure = {
           layer,
           ok: false,
+          status: "error",
           reason: safeErrorMessage(err),
+          durationMs: Math.max(0, layerEndedAt - layerStartedAt),
+          startedAt: layerStartedAt,
+          endedAt: layerEndedAt,
         };
         attempts.push(failure);
         if (observabilityEnabled) {
@@ -156,8 +187,11 @@ export function createWecomDeliveryRouter({
     return {
       ok: false,
       layer: null,
+      deliveryPath: null,
+      finalStatus: "failed",
       attempts,
       error: "all-layers-failed",
+      totalDurationMs: Math.max(0, Date.now() - deliverStartedAt),
     };
   }
 
@@ -167,4 +201,3 @@ export function createWecomDeliveryRouter({
     order: activeOrder,
   };
 }
-

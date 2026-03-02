@@ -49,6 +49,9 @@ const DEFAULT_DELIVERY_FALLBACK_ORDER = Object.freeze([
 ]);
 const DELIVERY_FALLBACK_LAYER_SET = new Set(DEFAULT_DELIVERY_FALLBACK_ORDER);
 const DYNAMIC_AGENT_MAP_SPLITTER = /[,\n]/;
+const GROUP_CHAT_TRIGGER_MODE_SET = new Set(["direct", "mention", "keyword"]);
+const DYNAMIC_AGENT_MODE_SET = new Set(["mapping", "deterministic", "hybrid"]);
+const DYNAMIC_AGENT_ID_STRATEGY_SET = new Set(["readable-hash"]);
 
 const inboundMessageDedupe = new Map();
 
@@ -500,12 +503,29 @@ export function resolveWecomGroupChatConfig({
       parseBooleanLike(processEnv?.WECOM_GROUP_CHAT_REQUIRE_MENTION, false),
     ),
   );
+  const triggerModeRaw = pickFirstNonEmptyString(
+    groupConfig.triggerMode,
+    envVars?.WECOM_GROUP_CHAT_TRIGGER_MODE,
+    processEnv?.WECOM_GROUP_CHAT_TRIGGER_MODE,
+  )
+    .trim()
+    .toLowerCase();
+  const triggerMode = GROUP_CHAT_TRIGGER_MODE_SET.has(triggerModeRaw)
+    ? triggerModeRaw
+    : requireMention
+      ? "mention"
+      : "direct";
   const mentionPatterns = parseStringList(
     groupConfig.mentionPatterns,
     envVars?.WECOM_GROUP_CHAT_MENTION_PATTERNS,
     processEnv?.WECOM_GROUP_CHAT_MENTION_PATTERNS,
     "@",
   );
+  const triggerKeywords = parseStringList(
+    groupConfig.triggerKeywords,
+    envVars?.WECOM_GROUP_CHAT_TRIGGER_KEYWORDS,
+    processEnv?.WECOM_GROUP_CHAT_TRIGGER_KEYWORDS,
+  ).map((item) => String(item ?? "").trim());
   const dedupedPatterns = [];
   const seen = new Set();
   for (const pattern of mentionPatterns) {
@@ -517,21 +537,17 @@ export function resolveWecomGroupChatConfig({
 
   return {
     enabled,
-    requireMention,
+    requireMention: triggerMode === "mention",
+    triggerMode,
     mentionPatterns: dedupedPatterns.length > 0 ? dedupedPatterns : ["@"],
+    triggerKeywords: uniqueLowerCaseList(triggerKeywords),
   };
 }
 
-export function shouldTriggerWecomGroupResponse(content, groupChatConfig) {
-  if (groupChatConfig?.enabled === false) return false;
-  if (groupChatConfig?.requireMention !== true) return true;
+function matchMentionPattern(content, mentionPatterns = ["@"]) {
   const text = String(content ?? "");
   if (!text.trim()) return false;
-  const patterns =
-    Array.isArray(groupChatConfig?.mentionPatterns) && groupChatConfig.mentionPatterns.length > 0
-      ? groupChatConfig.mentionPatterns
-      : ["@"];
-  return patterns.some((pattern) => {
+  return mentionPatterns.some((pattern) => {
     const normalized = String(pattern ?? "").trim();
     if (!normalized) return false;
     if (normalized === "@") {
@@ -551,8 +567,44 @@ export function shouldTriggerWecomGroupResponse(content, groupChatConfig) {
   });
 }
 
+function matchKeywordPattern(content, triggerKeywords = []) {
+  const text = String(content ?? "").trim();
+  if (!text) return false;
+  const normalizedText = text.toLowerCase();
+  return triggerKeywords.some((rawKeyword) => {
+    const keyword = String(rawKeyword ?? "").trim().toLowerCase();
+    if (!keyword) return false;
+    return normalizedText.includes(keyword);
+  });
+}
+
+export function shouldTriggerWecomGroupResponse(content, groupChatConfig) {
+  if (groupChatConfig?.enabled === false) return false;
+  const triggerMode = String(groupChatConfig?.triggerMode || "").trim().toLowerCase();
+  if (triggerMode === "mention") {
+    const patterns =
+      Array.isArray(groupChatConfig?.mentionPatterns) && groupChatConfig.mentionPatterns.length > 0
+        ? groupChatConfig.mentionPatterns
+        : ["@"];
+    return matchMentionPattern(content, patterns);
+  }
+  if (triggerMode === "keyword") {
+    const keywords =
+      Array.isArray(groupChatConfig?.triggerKeywords) && groupChatConfig.triggerKeywords.length > 0
+        ? groupChatConfig.triggerKeywords
+        : [];
+    return matchKeywordPattern(content, keywords);
+  }
+  return String(content ?? "").trim().length > 0;
+}
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function shouldStripWecomGroupMentions(groupChatConfig) {
+  const triggerMode = String(groupChatConfig?.triggerMode || "").trim().toLowerCase();
+  return triggerMode === "mention" || groupChatConfig?.requireMention === true;
 }
 
 export function stripWecomGroupMentions(content, mentionPatterns = ["@"]) {
@@ -655,6 +707,49 @@ export function resolveWecomDynamicAgentConfig({
       parseBooleanLike(processEnv?.WECOM_DYNAMIC_AGENT_ENABLED, false),
     ),
   );
+  const modeRaw = pickFirstNonEmptyString(
+    dynamicConfig.mode,
+    envVars?.WECOM_DYNAMIC_AGENT_MODE,
+    processEnv?.WECOM_DYNAMIC_AGENT_MODE,
+    enabled ? "deterministic" : "mapping",
+  )
+    .trim()
+    .toLowerCase();
+  const mode = DYNAMIC_AGENT_MODE_SET.has(modeRaw) ? modeRaw : enabled ? "deterministic" : "mapping";
+  const idStrategyRaw = pickFirstNonEmptyString(
+    dynamicConfig.idStrategy,
+    envVars?.WECOM_DYNAMIC_AGENT_ID_STRATEGY,
+    processEnv?.WECOM_DYNAMIC_AGENT_ID_STRATEGY,
+    "readable-hash",
+  )
+    .trim()
+    .toLowerCase();
+  const idStrategy = DYNAMIC_AGENT_ID_STRATEGY_SET.has(idStrategyRaw) ? idStrategyRaw : "readable-hash";
+  const deterministicPrefix = pickFirstNonEmptyString(
+    dynamicConfig.deterministicPrefix,
+    envVars?.WECOM_DYNAMIC_AGENT_PREFIX,
+    processEnv?.WECOM_DYNAMIC_AGENT_PREFIX,
+    "wecom",
+  );
+  const autoProvision = parseBooleanLike(
+    dynamicConfig.autoProvision,
+    parseBooleanLike(
+      envVars?.WECOM_DYNAMIC_AGENT_AUTO_PROVISION,
+      parseBooleanLike(processEnv?.WECOM_DYNAMIC_AGENT_AUTO_PROVISION, true),
+    ),
+  );
+  const allowUnknownAgentId = parseBooleanLike(
+    dynamicConfig.allowUnknownAgentId,
+    parseBooleanLike(
+      envVars?.WECOM_DYNAMIC_AGENT_ALLOW_UNKNOWN_AGENT_ID,
+      parseBooleanLike(processEnv?.WECOM_DYNAMIC_AGENT_ALLOW_UNKNOWN_AGENT_ID, autoProvision),
+    ),
+  );
+  const workspaceTemplate = pickFirstNonEmptyString(
+    dynamicConfig.workspaceTemplate,
+    envVars?.WECOM_DYNAMIC_AGENT_WORKSPACE_TEMPLATE,
+    processEnv?.WECOM_DYNAMIC_AGENT_WORKSPACE_TEMPLATE,
+  );
   const defaultAgentId = pickFirstNonEmptyString(
     dynamicConfig.defaultAgentId,
     dynamicConfig.default,
@@ -715,6 +810,12 @@ export function resolveWecomDynamicAgentConfig({
 
   return {
     enabled,
+    mode,
+    idStrategy,
+    deterministicPrefix: deterministicPrefix || "wecom",
+    autoProvision,
+    allowUnknownAgentId,
+    workspaceTemplate: workspaceTemplate || undefined,
     defaultAgentId: defaultAgentId || undefined,
     adminAgentId: adminAgentId || undefined,
     adminUsers,

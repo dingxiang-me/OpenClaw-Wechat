@@ -43,6 +43,7 @@ import {
   resolveWecomWebhookBotDeliveryConfig,
   resolveVoiceTranscriptionConfig,
   resolveWecomProxyConfig,
+  shouldStripWecomGroupMentions,
   shouldTriggerWecomGroupResponse,
   stripWecomGroupMentions,
   splitWecomText,
@@ -56,7 +57,7 @@ const xmlParser = new XMLParser({
 
 // 请求体大小限制 (1MB)
 const MAX_REQUEST_BODY_SIZE = 1024 * 1024;
-const PLUGIN_VERSION = "0.4.9";
+const PLUGIN_VERSION = "0.5.0";
 const WECOM_TEMP_DIR_NAME = "openclaw-wechat";
 const WECOM_TEMP_FILE_RETENTION_MS = 30 * 60 * 1000;
 const FFMPEG_PATH_CHECK_CACHE = {
@@ -2048,7 +2049,9 @@ function scheduleTextInboundProcessing(api, basePayload, content) {
   let commandProbeText = text;
   if (basePayload?.isGroupChat) {
     const groupPolicy = resolveWecomGroupChatPolicy(api);
-    commandProbeText = stripWecomGroupMentions(commandProbeText, groupPolicy.mentionPatterns);
+    if (shouldStripWecomGroupMentions(groupPolicy)) {
+      commandProbeText = stripWecomGroupMentions(commandProbeText, groupPolicy.mentionPatterns);
+    }
   }
   const command = extractLeadingSlashCommand(commandProbeText);
   const debounceConfig = resolveWecomTextDebouncePolicy(api);
@@ -2409,7 +2412,7 @@ export default function register(api) {
   }
   if (dynamicAgentPolicy.enabled) {
     api.logger.info?.(
-      `wecom: dynamic-agent on (userMap=${Object.keys(dynamicAgentPolicy.userMap || {}).length}, groupMap=${Object.keys(dynamicAgentPolicy.groupMap || {}).length}, mentionMap=${Object.keys(dynamicAgentPolicy.mentionMap || {}).length})`,
+      `wecom: dynamic-agent on (mode=${dynamicAgentPolicy.mode}, userMap=${Object.keys(dynamicAgentPolicy.userMap || {}).length}, groupMap=${Object.keys(dynamicAgentPolicy.groupMap || {}).length}, mentionMap=${Object.keys(dynamicAgentPolicy.mentionMap || {}).length})`,
     );
   }
 
@@ -2755,9 +2758,11 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
       ? "ℹ️ 发送者授权：未限制（allowFrom 未配置）"
       : `✅ 发送者授权：已限制 ${allowFromPolicy.allowFrom.length} 个用户`;
   const groupPolicyLine = groupPolicy.enabled
-    ? groupPolicy.requireMention
+    ? groupPolicy.triggerMode === "mention"
       ? "✅ 群聊触发：仅 @ 命中后处理"
-      : "✅ 群聊触发：无需 @（全部处理）"
+      : groupPolicy.triggerMode === "keyword"
+        ? `✅ 群聊触发：关键词模式（${(groupPolicy.triggerKeywords || []).join(" / ") || "未配置关键词"}）`
+        : "✅ 群聊触发：无需 @（全部处理）"
     : "⚠️ 群聊处理未启用";
   const debouncePolicyLine = debouncePolicy.enabled
     ? `✅ 文本防抖合并已启用（${debouncePolicy.windowMs}ms / 最多 ${debouncePolicy.maxBatch} 条）`
@@ -2775,7 +2780,7 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
     ? "✅ Webhook Bot 回包已启用"
     : "ℹ️ Webhook Bot 回包未启用";
   const dynamicAgentPolicyLine = dynamicAgentPolicy.enabled
-    ? `✅ 动态 Agent 路由已启用（用户映射 ${Object.keys(dynamicAgentPolicy.userMap || {}).length}，群映射 ${Object.keys(dynamicAgentPolicy.groupMap || {}).length}）`
+    ? `✅ 动态 Agent 路由已启用（mode=${dynamicAgentPolicy.mode}，用户映射 ${Object.keys(dynamicAgentPolicy.userMap || {}).length}，群映射 ${Object.keys(dynamicAgentPolicy.groupMap || {}).length}）`
     : "ℹ️ 动态 Agent 路由未启用";
 
   const statusText = `📊 系统状态
@@ -2851,9 +2856,11 @@ function buildWecomBotStatusText(api, fromUser) {
       ? "ℹ️ 发送者授权：未限制（allowFrom 未配置）"
       : `✅ 发送者授权：已限制 ${allowFromPolicy.allowFrom.length} 个用户`;
   const groupPolicyLine = groupPolicy.enabled
-    ? groupPolicy.requireMention
+    ? groupPolicy.triggerMode === "mention"
       ? "✅ 群聊触发：仅 @ 命中后处理"
-      : "✅ 群聊触发：无需 @（全部处理）"
+      : groupPolicy.triggerMode === "keyword"
+        ? `✅ 群聊触发：关键词模式（${(groupPolicy.triggerKeywords || []).join(" / ") || "未配置关键词"}）`
+        : "✅ 群聊触发：无需 @（全部处理）"
     : "⚠️ 群聊处理未启用";
   const fallbackPolicyLine = deliveryFallbackPolicy.enabled
     ? `✅ 回包兜底链路已启用（${deliveryFallbackPolicy.order.join(" > ")}）`
@@ -2865,7 +2872,7 @@ function buildWecomBotStatusText(api, fromUser) {
     ? "✅ Webhook Bot 回包已启用"
     : "ℹ️ Webhook Bot 回包未启用";
   const dynamicAgentPolicyLine = dynamicAgentPolicy.enabled
-    ? `✅ 动态 Agent 路由已启用（用户映射 ${Object.keys(dynamicAgentPolicy.userMap || {}).length}，群映射 ${Object.keys(dynamicAgentPolicy.groupMap || {}).length}）`
+    ? `✅ 动态 Agent 路由已启用（mode=${dynamicAgentPolicy.mode}，用户映射 ${Object.keys(dynamicAgentPolicy.userMap || {}).length}，群映射 ${Object.keys(dynamicAgentPolicy.groupMap || {}).length}）`
     : "ℹ️ 动态 Agent 路由未启用";
   return `📊 系统状态
 
@@ -2958,11 +2965,18 @@ async function processBotInboundMessage({
         return;
       }
       if (!shouldTriggerWecomGroupResponse(commandBody, groupChatPolicy)) {
-        const hint = groupChatPolicy.requireMention ? "请先 @ 机器人后再发送消息。" : "当前消息不满足群聊触发条件。";
+        const hint =
+          groupChatPolicy.triggerMode === "mention"
+            ? "请先 @ 机器人后再发送消息。"
+            : groupChatPolicy.triggerMode === "keyword"
+              ? "当前消息未命中群聊触发关键词。"
+              : "当前消息不满足群聊触发条件。";
         safeFinishStream(hint);
         return;
       }
-      commandBody = stripWecomGroupMentions(commandBody, groupChatPolicy.mentionPatterns);
+      if (shouldStripWecomGroupMentions(groupChatPolicy)) {
+        commandBody = stripWecomGroupMentions(commandBody, groupChatPolicy.mentionPatterns);
+      }
     }
 
     const commandPolicy = resolveWecomCommandPolicy(api);
@@ -3445,11 +3459,13 @@ async function processInboundMessage({
       }
       if (!shouldTriggerWecomGroupResponse(commandBody, groupChatPolicy)) {
         api.logger.info?.(
-          `wecom: group message skipped by trigger policy chatId=${chatId || "unknown"} requireMention=${groupChatPolicy.requireMention}`,
+          `wecom: group message skipped by trigger policy chatId=${chatId || "unknown"} mode=${groupChatPolicy.triggerMode || "direct"}`,
         );
         return;
       }
-      commandBody = stripWecomGroupMentions(commandBody, groupChatPolicy.mentionPatterns);
+      if (shouldStripWecomGroupMentions(groupChatPolicy)) {
+        commandBody = stripWecomGroupMentions(commandBody, groupChatPolicy.mentionPatterns);
+      }
       if (!commandBody.trim()) {
         api.logger.info?.(`wecom: group message became empty after mention strip chatId=${chatId || "unknown"}`);
         return;
@@ -3831,7 +3847,7 @@ async function processInboundMessage({
     );
     const progressNoticeDelayMs = Math.max(
       0,
-      asNumber(cfg?.env?.vars?.WECOM_PROGRESS_NOTICE_MS ?? requireEnv("WECOM_PROGRESS_NOTICE_MS"), 8000),
+      asNumber(cfg?.env?.vars?.WECOM_PROGRESS_NOTICE_MS ?? requireEnv("WECOM_PROGRESS_NOTICE_MS"), 0),
     );
     const lateReplyWatchMs = Math.max(
       30000,
@@ -3852,7 +3868,7 @@ async function processInboundMessage({
     );
     // 自建应用模式默认不发送“处理中”提示，避免打扰用户。
     const processingNoticeText = "";
-    const queuedNoticeText = "上一条消息仍在处理中，你的新消息已加入队列，请稍等片刻。";
+    const queuedNoticeText = "";
     const enqueueStreamingChunk = async (text, reason = "stream") => {
       const chunkText = String(text ?? "").trim();
       if (!chunkText || hasDeliveredReply) return;
@@ -4180,9 +4196,9 @@ async function processInboundMessage({
           await startLateReplyWatcher("queued-no-final");
         } else {
           // 进入这里说明 dispatcher 有输出或已排队，但当前回调还没有拿到可立即下发的 final。
-          // 发送处理中提示，避免用户感知为“无响应”。
+          // 自建应用不主动发处理中提示，仅转入异步补发观察。
           api.logger.warn?.(
-            "wecom: dispatch finished without direct final delivery; sending processing notice",
+            "wecom: dispatch finished without direct final delivery; waiting via late watcher",
           );
           await sendProgressNotice(processingNoticeText);
           await startLateReplyWatcher("dispatch-finished-without-final");

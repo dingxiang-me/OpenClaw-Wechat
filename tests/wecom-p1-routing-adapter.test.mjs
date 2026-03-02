@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { bindSessionKeyToAgent, extractWecomMentionCandidates, resolveWecomAgentRoute } from "../src/core/agent-routing.js";
+import {
+  bindSessionKeyToAgent,
+  buildDeterministicWecomAgentId,
+  extractWecomMentionCandidates,
+  resolveWecomAgentRoute,
+} from "../src/core/agent-routing.js";
 import {
   buildWecomBotMixedPayload,
   extractWecomXmlInboundEnvelope,
@@ -83,6 +88,55 @@ test("resolveWecomAgentRoute supports mention map in group chat", () => {
   assert.equal(route.agentId, "helper");
   assert.equal(route.dynamicMatchedBy, "dynamic.mention");
   assert.equal(route.sessionKey, "agent:helper:wecom:alice");
+});
+
+test("resolveWecomAgentRoute supports deterministic mode", () => {
+  const runtime = createRuntimeMock({
+    agentId: "main",
+    sessionKey: "agent:main:wecom:alice",
+    matchedBy: "default",
+    accountId: "default",
+  });
+  const route = resolveWecomAgentRoute({
+    runtime,
+    cfg: {
+      agents: {
+        list: [{ id: "main" }],
+      },
+    },
+    channel: "wecom",
+    accountId: "sales",
+    sessionKey: "wecom:alice",
+    fromUser: "Alice",
+    dynamicConfig: {
+      enabled: true,
+      mode: "deterministic",
+      deterministicPrefix: "wecom",
+      autoProvision: true,
+      allowUnknownAgentId: true,
+      forceAgentSessionKey: true,
+    },
+  });
+  assert.equal(route.dynamicMatchedBy, "dynamic.deterministic.user");
+  assert.equal(route.allowUnknownAgentId, true);
+  assert.equal(route.agentId.startsWith("wecom-dm-sales-alice-"), true);
+  assert.equal(route.sessionKey.startsWith(`agent:${route.agentId}:wecom:alice`), true);
+});
+
+test("buildDeterministicWecomAgentId is stable for same input", () => {
+  const a = buildDeterministicWecomAgentId({
+    accountId: "Sales",
+    fromUser: "Alice",
+    isGroupChat: false,
+    prefix: "wecom",
+  });
+  const b = buildDeterministicWecomAgentId({
+    accountId: "sales",
+    fromUser: "Alice",
+    isGroupChat: false,
+    prefix: "wecom",
+  });
+  assert.equal(a, b);
 });
 
 test("extractWecomMentionCandidates keeps mention names", () => {

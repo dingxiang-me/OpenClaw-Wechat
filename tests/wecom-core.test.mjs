@@ -226,6 +226,8 @@ test("group mention helpers trigger and strip correctly", () => {
     envVars: {},
     processEnv: {},
   });
+  assert.equal(groupCfg.triggerMode, "mention");
+  assert.equal(core.shouldStripWecomGroupMentions(groupCfg), true);
   assert.equal(core.shouldTriggerWecomGroupResponse("@AI助手 /status", groupCfg), true);
   assert.equal(core.shouldTriggerWecomGroupResponse("请看下 test@example.com", groupCfg), false);
   assert.equal(core.shouldTriggerWecomGroupResponse("你好@AI助手 帮我看下", groupCfg), true);
@@ -235,6 +237,37 @@ test("group mention helpers trigger and strip correctly", () => {
     core.stripWecomGroupMentions("邮箱 test@example.com @AI助手 /status", groupCfg.mentionPatterns),
     "邮箱 test@example.com /status",
   );
+});
+
+test("group trigger mode supports keyword and direct", () => {
+  const keywordCfg = core.resolveWecomGroupChatConfig({
+    channelConfig: {
+      groupChat: {
+        enabled: true,
+        triggerMode: "keyword",
+        triggerKeywords: ["机器人", "AI助手"],
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(keywordCfg.triggerMode, "keyword");
+  assert.equal(core.shouldStripWecomGroupMentions(keywordCfg), false);
+  assert.equal(core.shouldTriggerWecomGroupResponse("请机器人看一下", keywordCfg), true);
+  assert.equal(core.shouldTriggerWecomGroupResponse("普通聊天", keywordCfg), false);
+
+  const directCfg = core.resolveWecomGroupChatConfig({
+    channelConfig: {
+      groupChat: {
+        enabled: true,
+        triggerMode: "direct",
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(directCfg.triggerMode, "direct");
+  assert.equal(core.shouldTriggerWecomGroupResponse("大家好", directCfg), true);
 });
 
 test("resolveWecomDebounceConfig applies bounds and defaults", () => {
@@ -468,6 +501,9 @@ test("resolveWecomDynamicAgentConfig parses user/group/mention maps", () => {
     processEnv: {},
   });
   assert.equal(cfg.enabled, true);
+  assert.equal(cfg.mode, "deterministic");
+  assert.equal(cfg.autoProvision, true);
+  assert.equal(cfg.allowUnknownAgentId, true);
   assert.equal(cfg.defaultAgentId, "main");
   assert.equal(cfg.userMap.alice, "sales");
   assert.equal(cfg.groupMap.chat_1, "ops");
@@ -481,6 +517,7 @@ test("resolveWecomDynamicAgentConfig reads env map strings", () => {
     channelConfig: {},
     envVars: {
       WECOM_DYNAMIC_AGENT_ENABLED: "true",
+      WECOM_DYNAMIC_AGENT_MODE: "hybrid",
       WECOM_DYNAMIC_AGENT_USER_MAP: "tom=sales,jerry:ops",
       WECOM_DYNAMIC_AGENT_GROUP_MAP: "g1=support",
       WECOM_DYNAMIC_AGENT_MENTION_MAP: "ai助手=helper",
@@ -490,6 +527,7 @@ test("resolveWecomDynamicAgentConfig reads env map strings", () => {
     processEnv: {},
   });
   assert.equal(cfg.enabled, true);
+  assert.equal(cfg.mode, "hybrid");
   assert.equal(cfg.userMap.tom, "sales");
   assert.equal(cfg.userMap.jerry, "ops");
   assert.equal(cfg.groupMap.g1, "support");

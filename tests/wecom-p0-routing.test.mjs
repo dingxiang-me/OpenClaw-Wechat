@@ -60,6 +60,9 @@ test("delivery router uses active_stream only when fallback disabled", async () 
   const result = await router.deliverText({ text: "hello", traceId: "trace-1" });
   assert.equal(result.ok, true);
   assert.equal(result.layer, "active_stream");
+  assert.equal(result.deliveryPath, "active_stream");
+  assert.equal(result.finalStatus, "ok");
+  assert.equal(result.attempts[0].status, "ok");
   assert.deepEqual(hits, ["active_stream"]);
 });
 
@@ -85,6 +88,10 @@ test("delivery router falls through to next layer on rejection", async () => {
   const result = await router.deliverText({ text: "world", traceId: "trace-2" });
   assert.equal(result.ok, true);
   assert.equal(result.layer, "response_url");
+  assert.equal(result.deliveryPath, "response_url");
+  assert.equal(result.finalStatus, "degraded");
+  assert.equal(result.attempts[0].status, "miss");
+  assert.equal(result.attempts[1].status, "ok");
   assert.deepEqual(hits, ["active_stream", "response_url"]);
 });
 
@@ -103,4 +110,3 @@ test("resolveWebhookBotSendUrl supports key fallback", () => {
   const fromUrl = resolveWebhookBotSendUrl({ url: "https://example.com/webhook?key=xyz" });
   assert.equal(fromUrl, "https://example.com/webhook?key=xyz");
 });
-
