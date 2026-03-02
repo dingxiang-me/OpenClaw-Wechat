@@ -2206,6 +2206,36 @@ function listEnabledWecomAccounts(api) {
   return Array.from(rebuildWecomAccounts(api).values()).filter((cfg) => cfg?.enabled !== false);
 }
 
+function listWebhookTargetAliases(accountConfig) {
+  const map = accountConfig?.webhooks;
+  if (!map || typeof map !== "object") return [];
+  const aliases = Object.keys(map)
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+  aliases.sort();
+  return aliases;
+}
+
+function buildWebhookTargetStatusLine({ aliases, scope = "当前账户", maxPreview = 6 }) {
+  const normalized = Array.isArray(aliases) ? aliases : [];
+  if (normalized.length === 0) {
+    return `ℹ️ 命名 Webhook 目标（${scope}）：未配置`;
+  }
+  const preview = normalized.slice(0, maxPreview).join(", ");
+  const suffix = normalized.length > maxPreview ? ` ... 共 ${normalized.length} 个` : `（共 ${normalized.length} 个）`;
+  return `✅ 命名 Webhook 目标（${scope}）：${preview}${suffix}`;
+}
+
+function listAllWebhookTargetAliases(api) {
+  const aliases = new Set();
+  for (const account of listEnabledWecomAccounts(api)) {
+    for (const alias of listWebhookTargetAliases(account)) {
+      aliases.add(alias);
+    }
+  }
+  return Array.from(aliases).sort();
+}
+
 function groupAccountsByWebhookPath(api) {
   const grouped = new Map();
   for (const account of listEnabledWecomAccounts(api)) {
@@ -3092,6 +3122,7 @@ async function handleHelpCommand({ api, fromUser, corpId, corpSecret, agentId, p
 async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId, accountId, proxyUrl }) {
   const config = getWecomConfig(api, accountId);
   const accountIds = listWecomAccountIds(api);
+  const webhookTargetAliases = listWebhookTargetAliases(config);
   const voiceConfig = resolveWecomVoiceTranscriptionConfig(api);
   const commandPolicy = resolveWecomCommandPolicy(api);
   const allowFromPolicy = resolveWecomAllowFromPolicy(api, config?.accountId, config);
@@ -3135,6 +3166,10 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
   const webhookBotPolicyLine = webhookBotPolicy.enabled
     ? "✅ Webhook Bot 回包已启用"
     : "ℹ️ Webhook Bot 回包未启用";
+  const webhookTargetsLine = buildWebhookTargetStatusLine({
+    aliases: webhookTargetAliases,
+    scope: config?.accountId || "default",
+  });
   const dynamicAgentPolicyLine = dynamicAgentPolicy.enabled
     ? `✅ 动态 Agent 路由已启用（mode=${dynamicAgentPolicy.mode}，用户映射 ${Object.keys(dynamicAgentPolicy.userMap || {}).length}，群映射 ${Object.keys(dynamicAgentPolicy.groupMap || {}).length}）`
     : "ℹ️ 动态 Agent 路由未启用";
@@ -3163,6 +3198,7 @@ ${streamingPolicyLine}
 ${fallbackPolicyLine}
 ${streamManagerPolicyLine}
 ${webhookBotPolicyLine}
+${webhookTargetsLine}
 ${dynamicAgentPolicyLine}
 ${proxyEnabled ? "✅ WeCom 出站代理已启用" : "ℹ️ WeCom 出站代理未启用"}
 ${voiceStatusLine}`;
@@ -3196,6 +3232,7 @@ function buildWecomBotHelpText() {
 }
 
 function buildWecomBotStatusText(api, fromUser) {
+  const allWebhookTargetAliases = listAllWebhookTargetAliases(api);
   const commandPolicy = resolveWecomCommandPolicy(api);
   const allowFromPolicy = resolveWecomAllowFromPolicy(api, "default", {});
   const groupPolicy = resolveWecomGroupChatPolicy(api);
@@ -3227,6 +3264,10 @@ function buildWecomBotStatusText(api, fromUser) {
   const webhookBotPolicyLine = webhookBotPolicy.enabled
     ? "✅ Webhook Bot 回包已启用"
     : "ℹ️ Webhook Bot 回包未启用";
+  const webhookTargetsLine = buildWebhookTargetStatusLine({
+    aliases: allWebhookTargetAliases,
+    scope: "全部账户",
+  });
   const dynamicAgentPolicyLine = dynamicAgentPolicy.enabled
     ? `✅ 动态 Agent 路由已启用（mode=${dynamicAgentPolicy.mode}，用户映射 ${Object.keys(dynamicAgentPolicy.userMap || {}).length}，群映射 ${Object.keys(dynamicAgentPolicy.groupMap || {}).length}）`
     : "ℹ️ 动态 Agent 路由未启用";
@@ -3245,6 +3286,7 @@ ${groupPolicyLine}
 ${fallbackPolicyLine}
 ${streamManagerPolicyLine}
 ${webhookBotPolicyLine}
+${webhookTargetsLine}
 ${dynamicAgentPolicyLine}`;
 }
 

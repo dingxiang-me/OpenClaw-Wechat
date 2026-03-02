@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - 新增 `webhook` 目标直发能力：`outbound.sendText` 与 `inbound.deliverReply` 支持 `webhook:<url|key>` 文本/媒体回传
 - 新增命名 Webhook 目标映射：支持 `channels.wecom.webhooks` / `accounts.<id>.webhooks` 与 `WECOM_WEBHOOK_TARGETS`
 - 新增 Agent 端到端自检脚本：`npm run wecom:agent:selfcheck`（URL 验证 + 加密 POST）
+- 新增状态可观测项：`/status` 与 Bot `/status` 增加命名 Webhook 目标统计
 
 ### Changed
 - P3 模块化拆分第一步：Bot 回包链路从 `src/index.js` 抽离到独立模块（保持行为兼容）
@@ -29,6 +30,7 @@ All notable changes to this project will be documented in this file.
 - 移除仓库内 `docs/compare-sunnoy-gap.md`（仅保留本地副本）
 - `chat:wc...` / `group:wr...` 出站目标改为调用企业微信 `appchat/send`，避免旧路径兼容问题
 - 远端 E2E 升级为矩阵模式：`wecom:remote:e2e` 支持 `--mode agent|bot|all`
+- `wecom:selfcheck` 增加命名 Webhook 目标校验与统计输出
 
 ## [0.5.0] - 2026-03-02
 

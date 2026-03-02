@@ -127,6 +127,82 @@ function normalizeWebhookPath(raw, fallback = "/wecom/callback") {
   return input.startsWith("/") ? input : `/${input}`;
 }
 
+function normalizeWebhookAlias(raw) {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeWebhookTargetMap(...values) {
+  const out = {};
+  const assign = (rawAlias, rawTarget) => {
+    const alias = normalizeWebhookAlias(rawAlias);
+    const target = String(rawTarget ?? "").trim();
+    if (!alias || !target) return;
+    out[alias] = target;
+  };
+
+  for (const value of values) {
+    if (!value) continue;
+    if (typeof value === "string") {
+      const text = value.trim();
+      if (!text) continue;
+      if (text.startsWith("{") && text.endsWith("}")) {
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            for (const [rawAlias, rawTarget] of Object.entries(parsed)) {
+              assign(rawAlias, rawTarget);
+            }
+            continue;
+          }
+        } catch {
+          // fall through to name=value parser
+        }
+      }
+      for (const token of text.split(/[,\n;]/)) {
+        const pair = String(token ?? "").trim();
+        if (!pair) continue;
+        const eqIndex = pair.indexOf("=");
+        if (eqIndex <= 0 || eqIndex >= pair.length - 1) continue;
+        assign(pair.slice(0, eqIndex), pair.slice(eqIndex + 1));
+      }
+      continue;
+    }
+    if (typeof value === "object" && !Array.isArray(value)) {
+      for (const [rawAlias, rawTarget] of Object.entries(value)) {
+        assign(rawAlias, rawTarget);
+      }
+    }
+  }
+  return out;
+}
+
+function validateWebhookTargetMap(targetMap = {}) {
+  const invalid = [];
+  for (const [alias, target] of Object.entries(targetMap)) {
+    const value = String(target ?? "").trim();
+    if (!value) {
+      invalid.push({ alias, reason: "empty-target" });
+      continue;
+    }
+    if (/^https?:\/\//i.test(value)) {
+      try {
+        const parsed = new URL(value);
+        if (!parsed.hostname) invalid.push({ alias, reason: "invalid-url-host" });
+      } catch {
+        invalid.push({ alias, reason: "invalid-url-format" });
+      }
+      continue;
+    }
+    if (/^key:\s*$/i.test(value)) {
+      invalid.push({ alias, reason: "empty-key" });
+      continue;
+    }
+  }
+  return invalid;
+}
+
 function isLikelyHttpProxyUrl(proxyUrl) {
   return /^https?:\/\/\S+$/i.test(String(proxyUrl ?? "").trim());
 }
@@ -287,6 +363,7 @@ function readAccountConfigFromEnv(envVars, accountId) {
   const callbackToken = String(readVar("CALLBACK_TOKEN") ?? "").trim();
   const callbackAesKey = String(readVar("CALLBACK_AES_KEY") ?? "").trim();
   const webhookPath = String(readVar("WEBHOOK_PATH") ?? "/wecom/callback").trim() || "/wecom/callback";
+  const webhooks = normalizeWebhookTargetMap(readVar("WEBHOOK_TARGETS"), readVar("WEBHOOKS"));
   const outboundProxy = String(
     readVar("PROXY") ??
       (normalizedId === "default"
@@ -305,6 +382,7 @@ function readAccountConfigFromEnv(envVars, accountId) {
     callbackToken,
     callbackAesKey,
     webhookPath,
+    webhooks: Object.keys(webhooks).length > 0 ? webhooks : undefined,
     outboundProxy: outboundProxy || undefined,
     enabled,
     source: "env",
@@ -320,6 +398,7 @@ function normalizeResolvedAccount(raw, accountId, source) {
   const callbackToken = String(raw.callbackToken ?? "").trim();
   const callbackAesKey = String(raw.callbackAesKey ?? "").trim();
   const webhookPath = String(raw.webhookPath ?? "/wecom/callback").trim() || "/wecom/callback";
+  const webhooks = normalizeWebhookTargetMap(raw.webhooks);
   const outboundProxy = String(raw.outboundProxy ?? raw.proxyUrl ?? raw.proxy ?? "").trim();
   const enabled = raw.enabled !== false;
   if (!corpId || !corpSecret || !agentId) return null;
@@ -331,6 +410,7 @@ function normalizeResolvedAccount(raw, accountId, source) {
     callbackToken,
     callbackAesKey,
     webhookPath,
+    webhooks: Object.keys(webhooks).length > 0 ? webhooks : undefined,
     outboundProxy: outboundProxy || undefined,
     enabled,
     source,
@@ -342,10 +422,26 @@ function resolveAccountFromConfig(config, accountId, options = {}) {
   const normalizedId = normalizeAccountId(accountId);
   const channelConfig = config?.channels?.wecom;
   const envVars = config?.env?.vars ?? {};
+  const globalWebhookTargets = normalizeWebhookTargetMap(
+    channelConfig?.webhooks,
+    envVars?.WECOM_WEBHOOK_TARGETS,
+    process.env.WECOM_WEBHOOK_TARGETS,
+  );
+  const attachWebhookTargets = (resolved) => {
+    if (!resolved) return null;
+    const mergedWebhookTargets = {
+      ...globalWebhookTargets,
+      ...normalizeWebhookTargetMap(resolved.webhooks),
+    };
+    return {
+      ...resolved,
+      webhooks: Object.keys(mergedWebhookTargets).length > 0 ? mergedWebhookTargets : undefined,
+    };
+  };
 
   if (channelConfig && normalizedId === "default") {
     const byTop = normalizeResolvedAccount(channelConfig, "default", "channels.wecom");
-    if (byTop) return byTop;
+    if (byTop) return attachWebhookTargets(byTop);
   }
 
   const byAccounts = normalizeResolvedAccount(
@@ -353,17 +449,23 @@ function resolveAccountFromConfig(config, accountId, options = {}) {
     normalizedId,
     `channels.wecom.accounts.${normalizedId}`,
   );
-  if (byAccounts) return byAccounts;
+  if (byAccounts) return attachWebhookTargets(byAccounts);
 
   const byEnv = readAccountConfigFromEnv(envVars, normalizedId);
-  if (byEnv) return byEnv;
+  if (byEnv) return attachWebhookTargets(byEnv);
 
   if (allowFallback && normalizedId !== "default") {
     const fallbackDefault =
       normalizeResolvedAccount(channelConfig, "default", "channels.wecom") ||
       normalizeResolvedAccount(channelConfig?.accounts?.default, "default", "channels.wecom.accounts.default") ||
       readAccountConfigFromEnv(envVars, "default");
-    if (fallbackDefault) return { ...fallbackDefault, accountId: "default", fallbackFor: normalizedId };
+    if (fallbackDefault) {
+      return {
+        ...attachWebhookTargets(fallbackDefault),
+        accountId: "default",
+        fallbackFor: normalizedId,
+      };
+    }
   }
 
   return null;
@@ -511,6 +613,25 @@ async function runAccountChecks({ config, accountId, args }) {
     ),
   );
 
+  const webhookTargets = normalizeWebhookTargetMap(resolved.webhooks);
+  const webhookAliases = Object.keys(webhookTargets).sort();
+  const invalidWebhookTargets = validateWebhookTargetMap(webhookTargets);
+  checks.push(
+    makeCheck(
+      "config.webhooks.targets",
+      invalidWebhookTargets.length === 0,
+      webhookAliases.length === 0
+        ? "no named webhook targets configured"
+        : `configured=${webhookAliases.length} invalid=${invalidWebhookTargets.length}`,
+      webhookAliases.length > 0
+        ? {
+            aliases: webhookAliases,
+            invalid: invalidWebhookTargets,
+          }
+        : null,
+    ),
+  );
+
   const outboundProxy = resolveAccountProxy(config, resolved);
   const proxyValid = !outboundProxy || isLikelyHttpProxyUrl(outboundProxy);
   checks.push(
@@ -588,6 +709,7 @@ async function runAccountChecks({ config, accountId, args }) {
       source: resolved.source,
       enabled: resolved.enabled,
       webhookPath: resolved.webhookPath,
+      webhookTargetCount: webhookAliases.length,
       outboundProxy: outboundProxy ? sanitizeProxyForLog(outboundProxy) : null,
       fallbackFor: resolved.fallbackFor || null,
     },
@@ -617,6 +739,7 @@ function reportAndExit(report, asJson = false) {
         `- resolved: ${meta.accountId} source=${meta.source}${meta.fallbackFor ? ` fallback-for=${meta.fallbackFor}` : ""}`,
       );
       console.log(`- webhookPath: ${meta.webhookPath}`);
+      console.log(`- namedWebhookTargets: ${meta.webhookTargetCount ?? 0}`);
       console.log(`- outboundProxy: ${meta.outboundProxy || "(none)"}`);
     }
     for (const check of accountReport.checks) {
