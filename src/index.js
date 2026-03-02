@@ -3850,7 +3850,8 @@ async function processInboundMessage({
         asNumber(cfg?.env?.vars?.WECOM_LATE_REPLY_POLL_MS ?? requireEnv("WECOM_LATE_REPLY_POLL_MS"), 2000),
       ),
     );
-    const processingNoticeText = "消息已收到，正在处理中，请稍等片刻。";
+    // 自建应用模式默认不发送“处理中”提示，避免打扰用户。
+    const processingNoticeText = "";
     const queuedNoticeText = "上一条消息仍在处理中，你的新消息已加入队列，请稍等片刻。";
     const enqueueStreamingChunk = async (text, reason = "stream") => {
       const chunkText = String(text ?? "").trim();
@@ -3896,6 +3897,8 @@ async function processInboundMessage({
       return true;
     };
     const sendProgressNotice = async (text = processingNoticeText) => {
+      const noticeText = String(text ?? "").trim();
+      if (!noticeText) return;
       if (hasDeliveredReply || hasDeliveredPartialReply || hasSentProgressNotice) return;
       hasSentProgressNotice = true;
       await sendWecomText({
@@ -3903,7 +3906,7 @@ async function processInboundMessage({
         corpSecret,
         agentId,
         toUser: fromUser,
-        text,
+        text: noticeText,
         logger: api.logger,
         proxyUrl,
       });

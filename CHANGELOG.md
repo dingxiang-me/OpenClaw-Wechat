@@ -4,17 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-03-02
+
 ### Added
+- 新增动态 Agent 路由策略：`channels.wecom.dynamicAgent.*`（支持 `userMap/groupMap/mentionMap/adminUsers`）
+- 新增动态路由核心模块：`src/core/agent-routing.js`
+- 新增 Webhook 统一适配层：`src/wecom/webhook-adapter.js`（Bot JSON 与自建应用 XML 入站抽象）
+- 新增 Bot `msg_item` 图文回包能力（支持 `response_url` 发送 mixed payload）
+- 新增测试：动态路由与适配层（`tests/wecom-p1-routing-adapter.test.mjs`）
 - 新增 Bot 端到端自检脚本：`npm run wecom:bot:selfcheck`
 - 自检覆盖 Bot 回调全链路：`GET 健康探针`、`POST 签名+加密消息`、`stream-refresh` 轮询回包
 - `wecom:smoke` 新增可选开关：`--with-bot-e2e`（回归时可一并跑 Bot E2E）
 
 ### Changed
+- 自建应用与 Bot 链路统一接入 `routeOverrides`，确保动态路由结果真实生效
+- `/status` 与 Bot `/status` 增加动态路由状态展示
+- 自建应用模式默认不再发送“消息已收到，正在处理中，请稍等片刻。”
 - Bot 模式新增独立超时参数：`channels.wecom.bot.replyTimeoutMs` / `WECOM_BOT_REPLY_TIMEOUT_MS`
 - 文档补充 Bot 自检与超时参数说明（中英文 README + 渠道文档）
 
 ### Fixed
+- 修复媒体结果仅有 `mediaUrl/mediaUrls` 时 Bot 回包只能文本兜底的问题
 - 移除遗留 `clawdbot.plugin.json`，避免旧架构文件干扰 OpenClaw 原生插件加载
+- 修复文档对“处理中提示”行为描述过时的问题
 
 ## [0.4.9] - 2026-03-02
 
