@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - 新增本地媒体路径回传支持：`/abs/path`、`file://`、`sandbox:/...`
 - 新增 Bot `feedback.id` 透传：首包与 stream-refresh 回包可携带 feedback
 - 新增 WeCom 出站目标解析：支持 `user/group/party/tag` 目标格式
+- 新增动态 Agent workspace 模板播种：`dynamicAgent.workspaceTemplate` 在首条命中时自动复制 bootstrap 文件
 
 ### Changed
 - P3 模块化拆分第一步：Bot 回包链路从 `src/index.js` 抽离到独立模块（保持行为兼容）

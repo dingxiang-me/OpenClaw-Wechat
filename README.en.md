@@ -162,6 +162,7 @@ openclaw plugins install @dingxiang-me/openclaw-wechat
 | Command ACL | `commands.enabled`, `commands.allowlist`, `commands.rejectMessage` |
 | Admin bypass | `adminUsers` |
 | Group trigger | `groupChat.enabled`, `groupChat.triggerMode`, `groupChat.mentionPatterns`, `groupChat.triggerKeywords` |
+| Dynamic route | `dynamicAgent.*` (with `workspaceTemplate` bootstrap seeding) |
 | Debounce | `debounce.enabled`, `debounce.windowMs`, `debounce.maxBatch` |
 | Agent streaming | `streaming.enabled`, `streaming.minChars`, `streaming.minIntervalMs` |
 

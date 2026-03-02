@@ -18,6 +18,7 @@ This channel integrates OpenClaw with WeCom (企业微信) internal apps.
 - Delivery fallback chain: optional (`active_stream -> response_url -> webhook_bot -> agent_push`)
 - Group trigger mode: `direct` / `mention` / `keyword` (`channels.wecom.groupChat.triggerMode`)
 - Dynamic agent route mode: `deterministic` / `mapping` / `hybrid` (`channels.wecom.dynamicAgent.mode`)
+- Dynamic workspace seeding: supported via `channels.wecom.dynamicAgent.workspaceTemplate`
 - Session queue / stream manager: optional (`channels.wecom.stream.manager`)
 - Bot timeout tuning: supported (`channels.wecom.bot.replyTimeoutMs`, `lateReplyWatchMs`, `lateReplyPollMs`)
 

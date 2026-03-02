@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import { normalizePluginHttpPath } from "openclaw/plugin-sdk";
-import { writeFile, unlink, mkdir, readFile, stat, open } from "node:fs/promises";
+import { writeFile, unlink, mkdir, readFile, stat, open, copyFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { spawn } from "node:child_process";
@@ -71,6 +71,16 @@ const TEXT_MESSAGE_DEBOUNCE_BUFFERS = new Map();
 const ACTIVE_LATE_REPLY_WATCHERS = new Map();
 const DELIVERED_TRANSCRIPT_REPLY_CACHE = new Map();
 const TRANSCRIPT_REPLY_CACHE_TTL_MS = 30 * 60 * 1000;
+const SEEDED_AGENT_WORKSPACES = new Set();
+const BOOTSTRAP_TEMPLATE_FILES = new Set([
+  "AGENTS.md",
+  "SOUL.md",
+  "TOOLS.md",
+  "IDENTITY.md",
+  "USER.md",
+  "HEARTBEAT.md",
+  "BOOTSTRAP.md",
+]);
 const BOT_STREAM_MANAGER = new WecomStreamManager({ expireMs: 10 * 60 * 1000 });
 const BOT_SESSION_TASK_QUEUE = new WecomSessionTaskQueue({ maxConcurrentPerSession: 1 });
 const WECOM_SESSION_TASK_QUEUE = new WecomSessionTaskQueue({ maxConcurrentPerSession: 1 });
@@ -302,6 +312,70 @@ function scheduleTempFileCleanup(filePath, logger, delayMs = WECOM_TEMP_FILE_RET
     });
   }, delayMs);
   timer.unref?.();
+}
+
+function resolveOpenClawStateDir(cfg) {
+  const configured = String(cfg?.state?.dir ?? "").trim();
+  if (configured) return configured;
+  if (process.env.OPENCLAW_STATE_DIR && String(process.env.OPENCLAW_STATE_DIR).trim()) {
+    return String(process.env.OPENCLAW_STATE_DIR).trim();
+  }
+  const home = String(process.env.HOME ?? "").trim();
+  return home ? join(home, ".openclaw", "state") : join(tmpdir(), "openclaw-state");
+}
+
+function resolveAgentWorkspaceDir(agentId, cfg) {
+  const normalizedAgentId = String(agentId ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "-");
+  const stateDir = resolveOpenClawStateDir(cfg);
+  return join(stateDir, `workspace-${normalizedAgentId || "main"}`);
+}
+
+async function seedDynamicAgentWorkspace({ api, agentId, workspaceTemplate }) {
+  const templateDir = String(workspaceTemplate ?? "").trim();
+  const normalizedAgentId = String(agentId ?? "").trim().toLowerCase();
+  if (!templateDir || !normalizedAgentId) return;
+
+  const cacheKey = `${normalizedAgentId}::${templateDir}`;
+  if (SEEDED_AGENT_WORKSPACES.has(cacheKey)) return;
+
+  let entries = [];
+  try {
+    entries = await readdir(templateDir, { withFileTypes: true });
+  } catch (err) {
+    api?.logger?.warn?.(`wecom: workspaceTemplate unavailable (${templateDir}): ${String(err?.message || err)}`);
+    return;
+  }
+
+  const workspaceDir = resolveAgentWorkspaceDir(normalizedAgentId, api?.config);
+  await mkdir(workspaceDir, { recursive: true });
+
+  let copiedCount = 0;
+  for (const entry of entries) {
+    if (!entry?.isFile?.()) continue;
+    const fileName = String(entry.name ?? "").trim();
+    if (!BOOTSTRAP_TEMPLATE_FILES.has(fileName)) continue;
+    const sourcePath = join(templateDir, fileName);
+    const destPath = join(workspaceDir, fileName);
+    try {
+      await stat(destPath);
+      continue;
+    } catch {
+      // destination missing
+    }
+    await copyFile(sourcePath, destPath);
+    copiedCount += 1;
+    api?.logger?.info?.(`wecom: seeded workspace file agent=${normalizedAgentId} file=${fileName}`);
+  }
+
+  SEEDED_AGENT_WORKSPACES.add(cacheKey);
+  if (copiedCount > 0) {
+    api?.logger?.info?.(
+      `wecom: workspace template seeded agent=${normalizedAgentId} files=${copiedCount} dir=${workspaceDir}`,
+    );
+  }
 }
 
 // 企业微信 access_token 缓存（支持多账户）
@@ -3270,6 +3344,15 @@ async function processBotInboundMessage({
     api.logger.info?.(
       `wecom(bot): routed agent=${route.agentId} session=${sessionId} matchedBy=${route.dynamicMatchedBy || route.matchedBy || "default"}`,
     );
+    try {
+      await seedDynamicAgentWorkspace({
+        api,
+        agentId: route.agentId,
+        workspaceTemplate: dynamicAgentPolicy.workspaceTemplate,
+      });
+    } catch (seedErr) {
+      api.logger.warn?.(`wecom(bot): workspace seed failed: ${String(seedErr?.message || seedErr)}`);
+    }
     const storePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
       agentId: route.agentId,
     });
@@ -3743,6 +3826,15 @@ async function processInboundMessage({
     api.logger.info?.(
       `wecom: routed agent=${route.agentId} session=${sessionId} matchedBy=${route.dynamicMatchedBy || route.matchedBy || "default"}`,
     );
+    try {
+      await seedDynamicAgentWorkspace({
+        api,
+        agentId: route.agentId,
+        workspaceTemplate: dynamicAgentPolicy.workspaceTemplate,
+      });
+    } catch (seedErr) {
+      api.logger.warn?.(`wecom: workspace seed failed: ${String(seedErr?.message || seedErr)}`);
+    }
 
     // 获取 storePath
     const storePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {

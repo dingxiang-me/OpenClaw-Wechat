@@ -367,7 +367,7 @@
           },
           "workspaceTemplate": {
             "type": "string",
-            "description": "可选：动态 Agent 初始化模板目录（预留字段）"
+            "description": "可选：动态 Agent 初始化模板目录（首条命中时自动播种 bootstrap 文件）"
           },
           "defaultAgentId": {
             "type": "string",

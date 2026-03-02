@@ -296,6 +296,7 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | 管理员 | `adminUsers` | 绕过命令白名单 |
 | 命令白名单 | `commands.enabled` + `commands.allowlist` | 限制 `/` 指令 |
 | 群聊触发 | `groupChat.enabled` + `triggerMode` + `mentionPatterns` + `triggerKeywords` | 控制群消息触发条件 |
+| 动态路由 | `dynamicAgent.*`（含 `workspaceTemplate`） | 动态 Agent + workspace bootstrap 播种 |
 
 ### 吞吐与稳定性
 
