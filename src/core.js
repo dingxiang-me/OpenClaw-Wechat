@@ -48,6 +48,7 @@ const DEFAULT_DELIVERY_FALLBACK_ORDER = Object.freeze([
   "agent_push",
 ]);
 const DELIVERY_FALLBACK_LAYER_SET = new Set(DEFAULT_DELIVERY_FALLBACK_ORDER);
+const DYNAMIC_AGENT_MAP_SPLITTER = /[,\n]/;
 
 const inboundMessageDedupe = new Map();
 
@@ -279,6 +280,50 @@ function parseStringList(...values) {
         const trimmed = part.trim();
         if (trimmed) out.push(trimmed);
       }
+    }
+  }
+  return out;
+}
+
+function normalizeDynamicAgentMapKey(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function parseDynamicAgentMap(...values) {
+  const out = {};
+  for (const value of values) {
+    if (!value) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (!item || typeof item !== "object") continue;
+        const key = normalizeDynamicAgentMapKey(item.key ?? item.from ?? item.id ?? item.user ?? item.chat);
+        const agentId = String(item.agentId ?? item.agent ?? item.to ?? "").trim();
+        if (key && agentId) out[key] = agentId;
+      }
+      continue;
+    }
+    if (typeof value === "object") {
+      for (const [rawKey, rawAgentId] of Object.entries(value)) {
+        const key = normalizeDynamicAgentMapKey(rawKey);
+        const agentId = String(rawAgentId ?? "").trim();
+        if (key && agentId) out[key] = agentId;
+      }
+      continue;
+    }
+    if (typeof value !== "string") continue;
+    const tokens = value.split(DYNAMIC_AGENT_MAP_SPLITTER);
+    for (const token of tokens) {
+      const trimmed = String(token ?? "").trim();
+      if (!trimmed) continue;
+      const eqIndex = trimmed.indexOf("=");
+      const colonIndex = trimmed.indexOf(":");
+      let sepIndex = -1;
+      if (eqIndex >= 0 && colonIndex >= 0) sepIndex = Math.min(eqIndex, colonIndex);
+      else sepIndex = Math.max(eqIndex, colonIndex);
+      if (sepIndex <= 0 || sepIndex >= trimmed.length - 1) continue;
+      const key = normalizeDynamicAgentMapKey(trimmed.slice(0, sepIndex));
+      const agentId = String(trimmed.slice(sepIndex + 1)).trim();
+      if (key && agentId) out[key] = agentId;
     }
   }
   return out;
@@ -593,6 +638,92 @@ export function resolveWecomStreamingConfig({
     enabled,
     minChars,
     minIntervalMs,
+  };
+}
+
+export function resolveWecomDynamicAgentConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const dynamicConfig =
+    channelConfig?.dynamicAgent && typeof channelConfig.dynamicAgent === "object" ? channelConfig.dynamicAgent : {};
+  const enabled = parseBooleanLike(
+    dynamicConfig.enabled,
+    parseBooleanLike(
+      envVars?.WECOM_DYNAMIC_AGENT_ENABLED,
+      parseBooleanLike(processEnv?.WECOM_DYNAMIC_AGENT_ENABLED, false),
+    ),
+  );
+  const defaultAgentId = pickFirstNonEmptyString(
+    dynamicConfig.defaultAgentId,
+    dynamicConfig.default,
+    envVars?.WECOM_DYNAMIC_AGENT_DEFAULT_AGENT_ID,
+    processEnv?.WECOM_DYNAMIC_AGENT_DEFAULT_AGENT_ID,
+    envVars?.WECOM_DYNAMIC_AGENT_DEFAULT,
+    processEnv?.WECOM_DYNAMIC_AGENT_DEFAULT,
+  );
+  const adminAgentId = pickFirstNonEmptyString(
+    dynamicConfig.adminAgentId,
+    envVars?.WECOM_DYNAMIC_AGENT_ADMIN_AGENT_ID,
+    processEnv?.WECOM_DYNAMIC_AGENT_ADMIN_AGENT_ID,
+  );
+  const adminUsers = uniqueLowerCaseList(
+    parseStringList(
+      dynamicConfig.adminUsers,
+      envVars?.WECOM_DYNAMIC_AGENT_ADMIN_USERS,
+      processEnv?.WECOM_DYNAMIC_AGENT_ADMIN_USERS,
+      channelConfig?.adminUsers,
+    ),
+  );
+  const forceAgentSessionKey = parseBooleanLike(
+    dynamicConfig.forceAgentSessionKey,
+    parseBooleanLike(
+      envVars?.WECOM_DYNAMIC_AGENT_FORCE_SESSION_KEY,
+      parseBooleanLike(processEnv?.WECOM_DYNAMIC_AGENT_FORCE_SESSION_KEY, true),
+    ),
+  );
+  const preferMentionMap = parseBooleanLike(
+    dynamicConfig.preferMentionMap,
+    parseBooleanLike(
+      envVars?.WECOM_DYNAMIC_AGENT_PREFER_MENTION_MAP,
+      parseBooleanLike(processEnv?.WECOM_DYNAMIC_AGENT_PREFER_MENTION_MAP, true),
+    ),
+  );
+  const allowFallbackToDefaultRoute = parseBooleanLike(
+    dynamicConfig.allowFallbackToDefaultRoute,
+    parseBooleanLike(
+      envVars?.WECOM_DYNAMIC_AGENT_ALLOW_FALLBACK,
+      parseBooleanLike(processEnv?.WECOM_DYNAMIC_AGENT_ALLOW_FALLBACK, true),
+    ),
+  );
+  const userMap = parseDynamicAgentMap(
+    dynamicConfig.userMap,
+    envVars?.WECOM_DYNAMIC_AGENT_USER_MAP,
+    processEnv?.WECOM_DYNAMIC_AGENT_USER_MAP,
+  );
+  const groupMap = parseDynamicAgentMap(
+    dynamicConfig.groupMap,
+    envVars?.WECOM_DYNAMIC_AGENT_GROUP_MAP,
+    processEnv?.WECOM_DYNAMIC_AGENT_GROUP_MAP,
+  );
+  const mentionMap = parseDynamicAgentMap(
+    dynamicConfig.mentionMap,
+    envVars?.WECOM_DYNAMIC_AGENT_MENTION_MAP,
+    processEnv?.WECOM_DYNAMIC_AGENT_MENTION_MAP,
+  );
+
+  return {
+    enabled,
+    defaultAgentId: defaultAgentId || undefined,
+    adminAgentId: adminAgentId || undefined,
+    adminUsers,
+    forceAgentSessionKey,
+    preferMentionMap,
+    allowFallbackToDefaultRoute,
+    userMap,
+    groupMap,
+    mentionMap,
   };
 }
 

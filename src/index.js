@@ -9,6 +9,14 @@ import { ProxyAgent } from "undici";
 import { WecomSessionTaskQueue, WecomStreamManager } from "./core/stream-manager.js";
 import { createWecomDeliveryRouter, parseWecomResponseUrlResult } from "./core/delivery-router.js";
 import { resolveWebhookBotSendUrl, webhookSendText } from "./wecom/webhook-bot.js";
+import { resolveWecomAgentRoute } from "./core/agent-routing.js";
+import {
+  buildWecomBotMixedPayload,
+  describeWecomBotParsedMessage,
+  extractWecomXmlInboundEnvelope,
+  normalizeWecomBotOutboundMediaUrls,
+  parseWecomBotInboundMessage,
+} from "./wecom/webhook-adapter.js";
 import {
   WECOM_TEXT_BYTE_LIMIT,
   buildWecomSessionId,
@@ -27,6 +35,7 @@ import {
   resolveWecomCommandPolicyConfig,
   resolveWecomDebounceConfig,
   resolveWecomDeliveryFallbackConfig,
+  resolveWecomDynamicAgentConfig,
   resolveWecomGroupChatConfig,
   resolveWecomObservabilityConfig,
   resolveWecomStreamingConfig,
@@ -266,138 +275,6 @@ function cleanupExpiredBotStreams(expireMs = 10 * 60 * 1000) {
 
 function ensureBotStreamCleanupTimer(expireMs, logger) {
   BOT_STREAM_MANAGER.startCleanup({ expireMs, logger });
-}
-
-function collectWecomBotImageUrls(imageLike) {
-  const candidates = [
-    imageLike?.url,
-    imageLike?.pic_url,
-    imageLike?.picUrl,
-    imageLike?.image_url,
-    imageLike?.imageUrl,
-  ];
-  const dedupe = new Set();
-  const urls = [];
-  for (const candidate of candidates) {
-    const url = String(candidate ?? "").trim();
-    if (!url || dedupe.has(url)) continue;
-    dedupe.add(url);
-    urls.push(url);
-  }
-  return urls;
-}
-
-function parseWecomBotInboundMessage(payload) {
-  if (!payload || typeof payload !== "object") return null;
-  const msgType = String(payload.msgtype ?? "").trim().toLowerCase();
-  if (!msgType) return null;
-  if (msgType === "stream") {
-    return {
-      kind: "stream-refresh",
-      streamId: String(payload?.stream?.id ?? "").trim(),
-    };
-  }
-
-  const msgId = String(payload.msgid ?? "").trim() || `wecom-bot-${Date.now()}`;
-  const fromUser = String(payload?.from?.userid ?? "").trim();
-  const chatType = String(payload.chattype ?? "single").trim().toLowerCase() || "single";
-  const chatId = String(payload.chatid ?? "").trim();
-  const responseUrl = String(payload.response_url ?? "").trim();
-  let content = "";
-  const imageUrls = [];
-
-  if (msgType === "text") {
-    content = String(payload?.text?.content ?? "").trim();
-  } else if (msgType === "voice") {
-    content = String(payload?.voice?.content ?? "").trim();
-  } else if (msgType === "link") {
-    const title = String(payload?.link?.title ?? "").trim();
-    const description = String(payload?.link?.description ?? "").trim();
-    const url = String(payload?.link?.url ?? "").trim();
-    content = [title ? `[链接] ${title}` : "", description, url].filter(Boolean).join("\n").trim();
-  } else if (msgType === "location") {
-    const latitude = String(payload?.location?.latitude ?? "").trim();
-    const longitude = String(payload?.location?.longitude ?? "").trim();
-    const name = String(payload?.location?.name ?? payload?.location?.label ?? "").trim();
-    content = name ? `[位置] ${name} (${latitude}, ${longitude})` : `[位置] ${latitude}, ${longitude}`;
-  } else if (msgType === "image") {
-    imageUrls.push(...collectWecomBotImageUrls(payload?.image));
-    content = "[图片]";
-  } else if (msgType === "mixed") {
-    const items = Array.isArray(payload?.mixed?.msg_item) ? payload.mixed.msg_item : [];
-    const parts = [];
-    for (const item of items) {
-      const itemType = String(item?.msgtype ?? "").trim().toLowerCase();
-      if (itemType === "text") {
-        const text = String(item?.text?.content ?? "").trim();
-        if (text) parts.push(text);
-      } else if (itemType === "image") {
-        const itemImageUrls = collectWecomBotImageUrls(item?.image);
-        if (itemImageUrls.length > 0) {
-          imageUrls.push(...itemImageUrls);
-          parts.push("[图片]");
-        }
-      }
-    }
-    content = parts.join("\n").trim();
-  } else if (msgType === "event") {
-    return {
-      kind: "event",
-      eventType: String(payload?.event?.event_type ?? payload?.event ?? "").trim(),
-      fromUser,
-    };
-  } else {
-    return {
-      kind: "unsupported",
-      msgType,
-      fromUser,
-      msgId,
-    };
-  }
-
-  if (!fromUser) {
-    return {
-      kind: "invalid",
-      reason: "missing-from-user",
-      msgType,
-      msgId,
-    };
-  }
-
-  return {
-    kind: "message",
-    msgType,
-    msgId,
-    fromUser,
-    chatType,
-    chatId,
-    responseUrl,
-    content,
-    imageUrls,
-    isGroupChat: chatType === "group" || Boolean(chatId),
-  };
-}
-
-function describeWecomBotParsedMessage(parsed) {
-  if (!parsed || typeof parsed !== "object") return "unknown";
-  if (parsed.kind === "message") {
-    const imageCount = Array.isArray(parsed.imageUrls) ? parsed.imageUrls.length : 0;
-    const imageSuffix = imageCount > 0 ? ` images=${imageCount}` : "";
-    return `message msgType=${parsed.msgType || "unknown"} from=${parsed.fromUser || "unknown"} msgId=${parsed.msgId || "n/a"}${imageSuffix}`;
-  }
-  if (parsed.kind === "stream-refresh") {
-    return `stream-refresh streamId=${parsed.streamId || "unknown"}`;
-  }
-  if (parsed.kind === "unsupported") {
-    return `unsupported msgType=${parsed.msgType || "unknown"} from=${parsed.fromUser || "unknown"} msgId=${parsed.msgId || "n/a"}`;
-  }
-  if (parsed.kind === "invalid") {
-    return `invalid reason=${parsed.reason || "unknown"} msgType=${parsed.msgType || "unknown"} msgId=${parsed.msgId || "n/a"}`;
-  }
-  if (parsed.kind === "event") {
-    return `event eventType=${parsed.eventType || "unknown"} from=${parsed.fromUser || "unknown"}`;
-  }
-  return parsed.kind || "unknown";
 }
 
 function requireEnv(name, fallback) {
@@ -1886,6 +1763,10 @@ function resolveWecomObservabilityPolicy(api) {
   return resolveWecomObservabilityConfig(resolveWecomPolicyInputs(api));
 }
 
+function resolveWecomDynamicAgentPolicy(api) {
+  return resolveWecomDynamicAgentConfig(resolveWecomPolicyInputs(api));
+}
+
 function createDeliveryTraceId(prefix = "wecom") {
   const stamp = Date.now().toString(36);
   const rand = Math.random().toString(36).slice(2, 10);
@@ -1909,9 +1790,9 @@ function executeInboundTaskWithSessionQueue({ api, sessionId, isBot = false, tas
   return queue.enqueue(sessionId, task);
 }
 
-async function sendWecomBotTextViaResponseUrl({
+async function sendWecomBotPayloadViaResponseUrl({
   responseUrl,
-  text,
+  payload,
   logger,
   proxyUrl,
   timeoutMs = 8000,
@@ -1920,12 +1801,9 @@ async function sendWecomBotTextViaResponseUrl({
   if (!normalizedUrl) {
     throw new Error("missing response_url");
   }
-  const payload = {
-    msgtype: "text",
-    text: {
-      content: String(text ?? ""),
-    },
-  };
+  if (!payload || typeof payload !== "object") {
+    throw new Error("missing response payload");
+  }
   const requestOptions = attachWecomProxyDispatcher(
     normalizedUrl,
     {
@@ -1952,6 +1830,27 @@ async function sendWecomBotTextViaResponseUrl({
   };
 }
 
+async function sendWecomBotTextViaResponseUrl({
+  responseUrl,
+  text,
+  logger,
+  proxyUrl,
+  timeoutMs = 8000,
+}) {
+  return sendWecomBotPayloadViaResponseUrl({
+    responseUrl,
+    payload: {
+      msgtype: "text",
+      text: {
+        content: String(text ?? ""),
+      },
+    },
+    logger,
+    proxyUrl,
+    timeoutMs,
+  });
+}
+
 async function deliverBotReplyText({
   api,
   fromUser,
@@ -1959,12 +1858,23 @@ async function deliverBotReplyText({
   streamId,
   responseUrl,
   text,
+  mediaUrl,
+  mediaUrls,
   reason = "reply",
 } = {}) {
   const fallbackPolicy = resolveWecomDeliveryFallbackPolicy(api);
   const webhookBotPolicy = resolveWecomWebhookBotDeliveryPolicy(api);
   const observabilityPolicy = resolveWecomObservabilityPolicy(api);
   const botProxyUrl = resolveWecomBotProxyConfig(api);
+  const normalizedText = String(text ?? "").trim();
+  const normalizedMediaUrls = normalizeWecomBotOutboundMediaUrls({ mediaUrl, mediaUrls });
+  const mixedPayload = buildWecomBotMixedPayload({
+    text: normalizedText,
+    mediaUrls: normalizedMediaUrls,
+  });
+  const mediaFallbackSuffix =
+    normalizedMediaUrls.length > 0 ? `\n\n媒体链接：\n${normalizedMediaUrls.join("\n")}` : "";
+  const fallbackText = normalizedText || "已收到模型返回的媒体结果，请查看以下链接。";
 
   const normalizedSessionId = String(sessionId ?? "").trim() || buildWecomBotSessionId(fromUser);
   const inlineResponseUrl = String(responseUrl ?? "").trim();
@@ -1982,6 +1892,9 @@ async function deliverBotReplyText({
     observability: observabilityPolicy,
     handlers: {
       active_stream: async ({ text: content }) => {
+        if (normalizedMediaUrls.length > 0) {
+          return { ok: false, reason: "stream-media-unsupported" };
+        }
         if (!streamId || !hasBotStream(streamId)) {
           return { ok: false, reason: "stream-missing" };
         }
@@ -2001,9 +1914,15 @@ async function deliverBotReplyText({
         if (cachedResponseUrl?.used) {
           return { ok: false, reason: "response-url-used" };
         }
-        const result = await sendWecomBotTextViaResponseUrl({
+        const payload = mixedPayload || {
+          msgtype: "text",
+          text: {
+            content: content || fallbackText,
+          },
+        };
+        const result = await sendWecomBotPayloadViaResponseUrl({
           responseUrl: targetUrl,
-          text: content,
+          payload,
           logger: api.logger,
           proxyUrl: botProxyUrl,
           timeoutMs: webhookBotPolicy.timeoutMs,
@@ -2031,7 +1950,7 @@ async function deliverBotReplyText({
         await webhookSendText({
           url: webhookBotPolicy.url,
           key: webhookBotPolicy.key,
-          content,
+          content: `${content || fallbackText}${mediaFallbackSuffix}`.trim(),
           timeoutMs: webhookBotPolicy.timeoutMs,
         });
         return { ok: true };
@@ -2046,7 +1965,7 @@ async function deliverBotReplyText({
           corpSecret: account.corpSecret,
           agentId: account.agentId,
           toUser: fromUser,
-          text: content,
+          text: `${content || fallbackText}${mediaFallbackSuffix}`.trim(),
           logger: api.logger,
           proxyUrl: account.outboundProxy,
         });
@@ -2061,7 +1980,7 @@ async function deliverBotReplyText({
   });
 
   return router.deliverText({
-    text,
+    text: normalizedText || fallbackText,
     traceId,
     meta: {
       reason,
@@ -2069,6 +1988,7 @@ async function deliverBotReplyText({
       sessionId: normalizedSessionId,
       streamId: streamId || "",
       hasResponseUrl: Boolean(inlineResponseUrl || cachedResponseUrl?.url),
+      mediaCount: normalizedMediaUrls.length,
     },
   });
 }
@@ -2457,6 +2377,7 @@ export default function register(api) {
   const fallbackPolicy = resolveWecomDeliveryFallbackPolicy(api);
   const webhookBotPolicy = resolveWecomWebhookBotDeliveryPolicy(api);
   const observabilityPolicy = resolveWecomObservabilityPolicy(api);
+  const dynamicAgentPolicy = resolveWecomDynamicAgentPolicy(api);
 
   // 初始化配置
   const botModeConfig = resolveWecomBotConfig(api);
@@ -2485,6 +2406,11 @@ export default function register(api) {
   }
   if (observabilityPolicy.enabled) {
     api.logger.info?.(`wecom: observability enabled (payloadMeta=${observabilityPolicy.logPayloadMeta ? "on" : "off"})`);
+  }
+  if (dynamicAgentPolicy.enabled) {
+    api.logger.info?.(
+      `wecom: dynamic-agent on (userMap=${Object.keys(dynamicAgentPolicy.userMap || {}).length}, groupMap=${Object.keys(dynamicAgentPolicy.groupMap || {}).length}, mentionMap=${Object.keys(dynamicAgentPolicy.mentionMap || {}).length})`,
+    );
   }
 
   api.registerChannel({ plugin: WecomChannelPlugin });
@@ -2612,15 +2538,20 @@ export default function register(api) {
             return;
           }
 
-          // 检测是否为群聊消息
-          const chatId = msgObj.ChatId || null;
-          const isGroupChat = !!chatId;
-          const fromUser = msgObj.FromUserName;
-          const msgType = msgObj.MsgType;
-          const msgId = String(msgObj.MsgId ?? "").trim();
+          const inbound = extractWecomXmlInboundEnvelope(msgObj);
+          if (!inbound?.msgType) {
+            api.logger.warn?.("wecom: inbound message missing MsgType, dropped");
+            return;
+          }
+
+          const chatId = inbound.chatId || null;
+          const isGroupChat = Boolean(chatId);
+          const fromUser = inbound.fromUser;
+          const msgType = inbound.msgType;
+          const msgId = inbound.msgId;
 
           api.logger.info?.(
-            `wecom inbound: account=${matchedAccount.accountId} from=${msgObj?.FromUserName} msgType=${msgType} chatId=${chatId || "N/A"} content=${(msgObj?.Content ?? "").slice?.(0, 80)}`,
+            `wecom inbound: account=${matchedAccount.accountId} from=${fromUser} msgType=${msgType} chatId=${chatId || "N/A"} content=${(inbound?.content ?? "").slice?.(0, 80)}`,
           );
 
           if (!fromUser) {
@@ -2639,9 +2570,9 @@ export default function register(api) {
           const inboundSessionId = buildWecomSessionId(fromUser);
 
           // 异步处理消息，不阻塞响应
-          if (msgType === "text" && msgObj?.Content) {
-            scheduleTextInboundProcessing(api, basePayload, msgObj.Content);
-          } else if (msgType === "image" && msgObj?.MediaId) {
+          if (msgType === "text" && inbound.content) {
+            scheduleTextInboundProcessing(api, basePayload, inbound.content);
+          } else if (msgType === "image" && inbound.mediaId) {
             messageProcessLimiter
               .execute(() =>
                 executeInboundTaskWithSessionQueue({
@@ -2651,16 +2582,16 @@ export default function register(api) {
                   task: () =>
                     processInboundMessage({
                       ...basePayload,
-                      mediaId: msgObj.MediaId,
+                      mediaId: inbound.mediaId,
                       msgType: "image",
-                      picUrl: msgObj.PicUrl,
+                      picUrl: inbound.picUrl,
                     }),
                 }),
               )
               .catch((err) => {
                 api.logger.error?.(`wecom: async image processing failed: ${err.message}`);
               });
-          } else if (msgType === "voice" && msgObj?.MediaId) {
+          } else if (msgType === "voice" && inbound.mediaId) {
             messageProcessLimiter
               .execute(() =>
                 executeInboundTaskWithSessionQueue({
@@ -2670,16 +2601,16 @@ export default function register(api) {
                   task: () =>
                     processInboundMessage({
                       ...basePayload,
-                      mediaId: msgObj.MediaId,
+                      mediaId: inbound.mediaId,
                       msgType: "voice",
-                      recognition: msgObj.Recognition,
+                      recognition: inbound.recognition,
                     }),
                 }),
               )
               .catch((err) => {
                 api.logger.error?.(`wecom: async voice processing failed: ${err.message}`);
               });
-          } else if (msgType === "video" && msgObj?.MediaId) {
+          } else if (msgType === "video" && inbound.mediaId) {
             messageProcessLimiter
               .execute(() =>
                 executeInboundTaskWithSessionQueue({
@@ -2689,16 +2620,16 @@ export default function register(api) {
                   task: () =>
                     processInboundMessage({
                       ...basePayload,
-                      mediaId: msgObj.MediaId,
+                      mediaId: inbound.mediaId,
                       msgType: "video",
-                      thumbMediaId: msgObj.ThumbMediaId,
+                      thumbMediaId: inbound.thumbMediaId,
                     }),
                 }),
               )
               .catch((err) => {
                 api.logger.error?.(`wecom: async video processing failed: ${err.message}`);
               });
-          } else if (msgType === "file" && msgObj?.MediaId) {
+          } else if (msgType === "file" && inbound.mediaId) {
             messageProcessLimiter
               .execute(() =>
                 executeInboundTaskWithSessionQueue({
@@ -2708,10 +2639,10 @@ export default function register(api) {
                   task: () =>
                     processInboundMessage({
                       ...basePayload,
-                      mediaId: msgObj.MediaId,
+                      mediaId: inbound.mediaId,
                       msgType: "file",
-                      fileName: msgObj.FileName,
-                      fileSize: msgObj.FileSize,
+                      fileName: inbound.fileName,
+                      fileSize: inbound.fileSize,
                     }),
                 }),
               )
@@ -2729,10 +2660,10 @@ export default function register(api) {
                     processInboundMessage({
                       ...basePayload,
                       msgType: "link",
-                      linkTitle: msgObj.Title,
-                      linkDescription: msgObj.Description,
-                      linkUrl: msgObj.Url,
-                      linkPicUrl: msgObj.PicUrl,
+                      linkTitle: inbound.linkTitle,
+                      linkDescription: inbound.linkDescription,
+                      linkUrl: inbound.linkUrl,
+                      linkPicUrl: inbound.linkPicUrl,
                     }),
                 }),
               )
@@ -2811,6 +2742,7 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
   const deliveryFallbackPolicy = resolveWecomDeliveryFallbackPolicy(api);
   const streamManagerPolicy = resolveWecomStreamManagerPolicy(api);
   const webhookBotPolicy = resolveWecomWebhookBotDeliveryPolicy(api);
+  const dynamicAgentPolicy = resolveWecomDynamicAgentPolicy(api);
   const proxyEnabled = Boolean(config?.outboundProxy);
   const voiceStatusLine = voiceConfig.enabled
     ? `✅ 语音消息转写（本地 ${voiceConfig.provider}，模型: ${voiceConfig.modelPath || voiceConfig.model}）`
@@ -2842,6 +2774,9 @@ async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId,
   const webhookBotPolicyLine = webhookBotPolicy.enabled
     ? "✅ Webhook Bot 回包已启用"
     : "ℹ️ Webhook Bot 回包未启用";
+  const dynamicAgentPolicyLine = dynamicAgentPolicy.enabled
+    ? `✅ 动态 Agent 路由已启用（用户映射 ${Object.keys(dynamicAgentPolicy.userMap || {}).length}，群映射 ${Object.keys(dynamicAgentPolicy.groupMap || {}).length}）`
+    : "ℹ️ 动态 Agent 路由未启用";
 
   const statusText = `📊 系统状态
 
@@ -2867,6 +2802,7 @@ ${streamingPolicyLine}
 ${fallbackPolicyLine}
 ${streamManagerPolicyLine}
 ${webhookBotPolicyLine}
+${dynamicAgentPolicyLine}
 ${proxyEnabled ? "✅ WeCom 出站代理已启用" : "ℹ️ WeCom 出站代理未启用"}
 ${voiceStatusLine}`;
 
@@ -2906,6 +2842,7 @@ function buildWecomBotStatusText(api, fromUser) {
   const deliveryFallbackPolicy = resolveWecomDeliveryFallbackPolicy(api);
   const streamManagerPolicy = resolveWecomStreamManagerPolicy(api);
   const webhookBotPolicy = resolveWecomWebhookBotDeliveryPolicy(api);
+  const dynamicAgentPolicy = resolveWecomDynamicAgentPolicy(api);
   const commandPolicyLine = commandPolicy.enabled
     ? `✅ 指令白名单已启用（${commandPolicy.allowlist.length} 条，管理员 ${commandPolicy.adminUsers.length} 人）`
     : "ℹ️ 指令白名单未启用";
@@ -2927,6 +2864,9 @@ function buildWecomBotStatusText(api, fromUser) {
   const webhookBotPolicyLine = webhookBotPolicy.enabled
     ? "✅ Webhook Bot 回包已启用"
     : "ℹ️ Webhook Bot 回包未启用";
+  const dynamicAgentPolicyLine = dynamicAgentPolicy.enabled
+    ? `✅ 动态 Agent 路由已启用（用户映射 ${Object.keys(dynamicAgentPolicy.userMap || {}).length}，群映射 ${Object.keys(dynamicAgentPolicy.groupMap || {}).length}）`
+    : "ℹ️ 动态 Agent 路由未启用";
   return `📊 系统状态
 
 渠道：企业微信 AI 机器人 (Bot)
@@ -2941,7 +2881,8 @@ ${allowFromPolicyLine}
 ${groupPolicyLine}
 ${fallbackPolicyLine}
 ${streamManagerPolicyLine}
-${webhookBotPolicyLine}`;
+${webhookBotPolicyLine}
+${dynamicAgentPolicyLine}`;
 }
 
 async function processBotInboundMessage({
@@ -2958,7 +2899,9 @@ async function processBotInboundMessage({
 }) {
   const runtime = api.runtime;
   const cfg = api.config;
-  const sessionId = buildWecomBotSessionId(fromUser);
+  const baseSessionId = buildWecomBotSessionId(fromUser);
+  let sessionId = baseSessionId;
+  let routedAgentId = "";
   const fromAddress = `wecom-bot:${fromUser}`;
   const normalizedFromUser = String(fromUser ?? "").trim().toLowerCase();
   const originalContent = String(content ?? "");
@@ -2974,14 +2917,23 @@ async function processBotInboundMessage({
         .filter(Boolean),
     ),
   );
+  const groupChatPolicy = resolveWecomGroupChatPolicy(api);
+  const dynamicAgentPolicy = resolveWecomDynamicAgentPolicy(api);
 
   const safeFinishStream = (text) => {
     if (!hasBotStream(streamId)) return;
     finishBotStream(streamId, String(text ?? ""));
   };
-  const safeDeliverReply = async (text, reason = "reply") => {
-    const contentText = String(text ?? "").trim();
-    if (!contentText) return false;
+  const safeDeliverReply = async (reply, reason = "reply") => {
+    const normalizedReply =
+      typeof reply === "string"
+        ? { text: reply }
+        : reply && typeof reply === "object"
+          ? reply
+          : { text: "" };
+    const contentText = String(normalizedReply.text ?? "").trim();
+    const replyMediaUrls = normalizeWecomBotOutboundMediaUrls(normalizedReply);
+    if (!contentText && replyMediaUrls.length === 0) return false;
     const result = await deliverBotReplyText({
       api,
       fromUser,
@@ -2989,10 +2941,11 @@ async function processBotInboundMessage({
       streamId,
       responseUrl,
       text: contentText,
+      mediaUrls: replyMediaUrls,
       reason,
     });
     if (!result?.ok && hasBotStream(streamId)) {
-      finishBotStream(streamId, contentText);
+      finishBotStream(streamId, contentText || "已收到模型返回的媒体结果，请稍后刷新。");
     }
     return result?.ok === true;
   };
@@ -3000,7 +2953,6 @@ async function processBotInboundMessage({
 
   try {
     if (isGroupChat && msgType === "text") {
-      const groupChatPolicy = resolveWecomGroupChatPolicy(api);
       if (!groupChatPolicy.enabled) {
         safeFinishStream("当前群聊消息处理未启用。");
         return;
@@ -3133,12 +3085,26 @@ async function processBotInboundMessage({
       return;
     }
 
-    const route = runtime.channel.routing.resolveAgentRoute({
+    const route = resolveWecomAgentRoute({
+      runtime,
       cfg,
-      sessionKey: sessionId,
       channel: "wecom",
       accountId: "bot",
+      sessionKey: baseSessionId,
+      fromUser,
+      chatId,
+      isGroupChat,
+      content: commandBody || messageText,
+      mentionPatterns: groupChatPolicy.mentionPatterns,
+      dynamicConfig: dynamicAgentPolicy,
+      isAdminUser,
+      logger: api.logger,
     });
+    routedAgentId = String(route?.agentId ?? "").trim();
+    sessionId = String(route?.sessionKey ?? "").trim() || baseSessionId;
+    api.logger.info?.(
+      `wecom(bot): routed agent=${route.agentId} session=${sessionId} matchedBy=${route.dynamicMatchedBy || route.matchedBy || "default"}`,
+    );
     const storePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
       agentId: route.agentId,
     });
@@ -3289,6 +3255,14 @@ async function processBotInboundMessage({
         cfg,
         replyOptions: {
           disableBlockStreaming: false,
+          routeOverrides:
+            routedAgentId && sessionId
+              ? {
+                  sessionKey: sessionId,
+                  agentId: routedAgentId,
+                  accountId: "bot",
+                }
+              : undefined,
         },
         dispatcherOptions: {
           deliver: async (payload, info) => {
@@ -3318,8 +3292,12 @@ async function processBotInboundMessage({
             }
             if (payload?.mediaUrl || (payload?.mediaUrls?.length ?? 0) > 0) {
               streamFinished = await safeDeliverReply(
-                "已收到模型返回的媒体结果，但 Bot 流式模式暂不支持直接回传该媒体。",
-                "final-media-not-supported",
+                {
+                  text: "已收到模型返回的媒体结果。",
+                  mediaUrl: payload.mediaUrl,
+                  mediaUrls: payload.mediaUrls,
+                },
+                "final-media",
               );
               return;
             }
@@ -3367,14 +3345,9 @@ async function processBotInboundMessage({
     try {
       const fallbackFromTranscript = await (async () => {
         try {
-          const runtimeSessionId = buildWecomBotSessionId(fromUser);
+          const runtimeSessionId = sessionId || buildWecomBotSessionId(fromUser);
           const runtimeStorePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
-            agentId: runtime.channel.routing.resolveAgentRoute({
-              cfg,
-              sessionKey: runtimeSessionId,
-              channel: "wecom",
-              accountId: "bot",
-            }).agentId,
+            agentId: routedAgentId || "main",
           });
           const transcriptPath = await resolveSessionTranscriptFilePath({
             storePath: runtimeStorePath,
@@ -3453,16 +3426,19 @@ async function processInboundMessage({
 
   try {
     // 一用户一会话：群聊和私聊统一归并到 wecom:<userid>
-    const sessionId = buildWecomSessionId(fromUser);
+    const baseSessionId = buildWecomSessionId(fromUser);
+    let sessionId = baseSessionId;
+    let routedAgentId = "";
     const fromAddress = `wecom:${fromUser}`;
     const normalizedFromUser = String(fromUser ?? "").trim().toLowerCase();
     const originalContent = content || "";
     let commandBody = originalContent;
+    const groupChatPolicy = resolveWecomGroupChatPolicy(api);
+    const dynamicAgentPolicy = resolveWecomDynamicAgentPolicy(api);
     api.logger.info?.(`wecom: processing ${msgType} message for session ${sessionId}${isGroupChat ? " (group)" : ""}`);
 
     // 群聊触发策略（仅对文本消息）
     if (msgType === "text" && isGroupChat) {
-      const groupChatPolicy = resolveWecomGroupChatPolicy(api);
       if (!groupChatPolicy.enabled) {
         api.logger.info?.(`wecom: group chat processing disabled, skipped chatId=${chatId || "unknown"}`);
         return;
@@ -3744,12 +3720,26 @@ async function processInboundMessage({
     }
 
     // 获取路由信息
-    const route = runtime.channel.routing.resolveAgentRoute({
+    const route = resolveWecomAgentRoute({
+      runtime,
       cfg,
-      sessionKey: sessionId,
       channel: "wecom",
       accountId: config.accountId || "default",
+      sessionKey: baseSessionId,
+      fromUser,
+      chatId,
+      isGroupChat,
+      content: commandBody || messageText,
+      mentionPatterns: groupChatPolicy.mentionPatterns,
+      dynamicConfig: dynamicAgentPolicy,
+      isAdminUser,
+      logger: api.logger,
     });
+    routedAgentId = String(route?.agentId ?? "").trim();
+    sessionId = String(route?.sessionKey ?? "").trim() || baseSessionId;
+    api.logger.info?.(
+      `wecom: routed agent=${route.agentId} session=${sessionId} matchedBy=${route.dynamicMatchedBy || route.matchedBy || "default"}`,
+    );
 
     // 获取 storePath
     const storePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
@@ -4140,6 +4130,14 @@ async function processInboundMessage({
           replyOptions: {
             // 企业微信不支持编辑消息；开启流式时会以“多条文本消息”模拟增量输出。
             disableBlockStreaming: !streamingEnabled,
+            routeOverrides:
+              routedAgentId && sessionId
+                ? {
+                    sessionKey: sessionId,
+                    agentId: routedAgentId,
+                    accountId: config.accountId || "default",
+                  }
+                : undefined,
           },
         }),
         replyTimeoutMs,

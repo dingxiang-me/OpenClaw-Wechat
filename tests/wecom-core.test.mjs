@@ -445,3 +445,55 @@ test("resolveWecomObservabilityConfig reads env fallback", () => {
   assert.equal(cfg.enabled, false);
   assert.equal(cfg.logPayloadMeta, false);
 });
+
+test("resolveWecomDynamicAgentConfig parses user/group/mention maps", () => {
+  const cfg = core.resolveWecomDynamicAgentConfig({
+    channelConfig: {
+      dynamicAgent: {
+        enabled: true,
+        defaultAgentId: "main",
+        userMap: {
+          alice: "sales",
+        },
+        groupMap: {
+          chat_1: "ops",
+        },
+        mentionMap: {
+          "ai助手": "helper",
+        },
+        adminUsers: ["Root"],
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(cfg.enabled, true);
+  assert.equal(cfg.defaultAgentId, "main");
+  assert.equal(cfg.userMap.alice, "sales");
+  assert.equal(cfg.groupMap.chat_1, "ops");
+  assert.equal(cfg.mentionMap["ai助手"], "helper");
+  assert.deepEqual(cfg.adminUsers, ["root"]);
+  assert.equal(cfg.forceAgentSessionKey, true);
+});
+
+test("resolveWecomDynamicAgentConfig reads env map strings", () => {
+  const cfg = core.resolveWecomDynamicAgentConfig({
+    channelConfig: {},
+    envVars: {
+      WECOM_DYNAMIC_AGENT_ENABLED: "true",
+      WECOM_DYNAMIC_AGENT_USER_MAP: "tom=sales,jerry:ops",
+      WECOM_DYNAMIC_AGENT_GROUP_MAP: "g1=support",
+      WECOM_DYNAMIC_AGENT_MENTION_MAP: "ai助手=helper",
+      WECOM_DYNAMIC_AGENT_ADMIN_USERS: "AdminA,AdminB",
+      WECOM_DYNAMIC_AGENT_FORCE_SESSION_KEY: "false",
+    },
+    processEnv: {},
+  });
+  assert.equal(cfg.enabled, true);
+  assert.equal(cfg.userMap.tom, "sales");
+  assert.equal(cfg.userMap.jerry, "ops");
+  assert.equal(cfg.groupMap.g1, "support");
+  assert.equal(cfg.mentionMap["ai助手"], "helper");
+  assert.deepEqual(cfg.adminUsers.sort(), ["admina", "adminb"]);
+  assert.equal(cfg.forceAgentSessionKey, false);
+});

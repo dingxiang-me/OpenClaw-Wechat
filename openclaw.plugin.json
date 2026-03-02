@@ -304,6 +304,73 @@
           }
         }
       },
+      "dynamicAgent": {
+        "type": "object",
+        "description": "动态 Agent 路由策略（按用户/群/提及映射到指定 agent）",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否启用动态 Agent 路由"
+          },
+          "defaultAgentId": {
+            "type": "string",
+            "description": "未命中映射时的默认 Agent ID"
+          },
+          "adminAgentId": {
+            "type": "string",
+            "description": "管理员用户强制路由的 Agent ID"
+          },
+          "adminUsers": {
+            "type": "array",
+            "description": "动态路由管理员用户列表（优先于 userMap）",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "userMap": {
+            "type": "object",
+            "description": "用户路由映射：{ \"dingxiang\": \"main\" }",
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "groupMap": {
+            "type": "object",
+            "description": "群路由映射：{ \"chatid_xxx\": \"main\" }",
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "mentionMap": {
+            "type": "object",
+            "description": "提及路由映射：{ \"ai助手\": \"main\" }",
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "preferMentionMap": {
+            "type": "boolean",
+            "default": true,
+            "description": "群聊中是否优先按提及映射路由"
+          },
+          "forceAgentSessionKey": {
+            "type": "boolean",
+            "default": true,
+            "description": "是否将会话键绑定到目标 Agent（避免跨 Agent 串上下文）"
+          },
+          "allowFallbackToDefaultRoute": {
+            "type": "boolean",
+            "default": true,
+            "description": "未命中动态映射时是否回退到 OpenClaw 默认路由"
+          }
+        }
+      },
       "debounce": {
         "type": "object",
         "description": "文本消息防抖合并",
