@@ -2,6 +2,7 @@ import { buildWecomInboundContextPayload, buildWecomInboundEnvelopePayload } fro
 import { createWecomAgentDispatchHandlers } from "./agent-dispatch-handlers.js";
 import { handleWecomAgentPostDispatchFallback } from "./agent-dispatch-fallback.js";
 import { createWecomAgentDispatchState, resolveWecomAgentReplyRuntimePolicy } from "./agent-reply-runtime.js";
+import { createWecomAgentStreamingChunkManager } from "./agent-streaming-chunks.js";
 import { createWecomLateReplyWatcher } from "./agent-late-reply-watcher.js";
 import { buildWorkspaceAutoSendHints, computeStreamingTailText } from "./agent-reply-format.js";
 import { createWecomAgentTextSender } from "./agent-text-sender.js";
@@ -325,41 +326,15 @@ export function createWecomAgentInboundProcessor(deps = {}) {
     // 自建应用模式默认不发送“处理中”提示，避免打扰用户。
     const processingNoticeText = "";
     const queuedNoticeText = "";
-    const enqueueStreamingChunk = async (text, reason = "stream") => {
-      const chunkText = String(text ?? "").trim();
-      if (!chunkText || dispatchState.hasDeliveredReply) return;
-      dispatchState.hasDeliveredPartialReply = true;
-      dispatchState.streamChunkSendChain = dispatchState.streamChunkSendChain
-        .then(async () => {
-          await sendTextToUser(chunkText);
-          dispatchState.streamChunkLastSentAt = Date.now();
-          dispatchState.streamChunkSentCount += 1;
-          api.logger.info?.(
-            `wecom: streamed block chunk ${dispatchState.streamChunkSentCount} (${reason}), bytes=${getByteLength(chunkText)}`,
-          );
-        })
-        .catch((streamErr) => {
-          api.logger.warn?.(`wecom: failed to send streaming block chunk: ${String(streamErr)}`);
-        });
-      await dispatchState.streamChunkSendChain;
-    };
-    const flushStreamingBuffer = async ({ force = false, reason = "stream" } = {}) => {
-      if (!streamingEnabled || dispatchState.hasDeliveredReply) return false;
-      const pendingText = String(dispatchState.streamChunkBuffer ?? "");
-      const candidate = markdownToWecomText(pendingText).trim();
-      if (!candidate) return false;
-
-      const minChars = Math.max(20, Number(streamingPolicy.minChars || 120));
-      const minIntervalMs = Math.max(200, Number(streamingPolicy.minIntervalMs || 1200));
-      if (!force) {
-        if (candidate.length < minChars) return false;
-        if (Date.now() - dispatchState.streamChunkLastSentAt < minIntervalMs) return false;
-      }
-
-      dispatchState.streamChunkBuffer = "";
-      await enqueueStreamingChunk(candidate, reason);
-      return true;
-    };
+    const { flushStreamingBuffer } = createWecomAgentStreamingChunkManager({
+      state: dispatchState,
+      streamingEnabled,
+      streamingPolicy,
+      markdownToWecomText,
+      getByteLength,
+      sendTextToUser,
+      logger: api.logger,
+    });
     const sendProgressNotice = async (text = processingNoticeText) => {
       const noticeText = String(text ?? "").trim();
       if (!noticeText) return;
