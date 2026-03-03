@@ -1,6 +1,11 @@
 import { createWecomLateReplyWatcher } from "./agent-late-reply-watcher.js";
 import { buildWecomBotInboundContextPayload, buildWecomBotInboundEnvelopePayload } from "./bot-context.js";
 import { createWecomBotDispatchHandlers } from "./bot-dispatch-handlers.js";
+import {
+  createWecomBotDispatchState,
+  createWecomBotLateReplyRuntime,
+  resolveWecomBotReplyRuntimePolicy,
+} from "./bot-reply-runtime.js";
 import { createWecomBotTranscriptFallbackReader } from "./bot-transcript-fallback.js";
 
 export function createWecomBotInboundProcessor(deps = {}) {
@@ -147,6 +152,7 @@ async function processBotInboundMessage({
     return result?.ok === true;
   };
   let startLateReplyWatcher = () => false;
+  let readTranscriptFallbackResult = async () => ({ text: "", transcriptMessageId: "" });
 
   try {
     if (isGroupChat && msgType === "text") {
@@ -313,90 +319,31 @@ async function processBotInboundMessage({
       direction: "inbound",
     });
 
-    const dispatchState = {
-      blockText: "",
-      streamFinished: false,
-    };
-    let lateReplyWatcherPromise = null;
-    const replyTimeoutMs = Math.max(15000, Number(botModeConfig?.replyTimeoutMs) || 90000);
-    const lateReplyWatchMs = Math.max(30000, Number(botModeConfig?.lateReplyWatchMs) || 180000);
-    const lateReplyPollMs = Math.max(500, Number(botModeConfig?.lateReplyPollMs) || 2000);
+    const dispatchState = createWecomBotDispatchState();
+    const replyRuntimePolicy = resolveWecomBotReplyRuntimePolicy({ botModeConfig });
+    const replyTimeoutMs = replyRuntimePolicy.replyTimeoutMs;
+    const lateReplyWatchMs = replyRuntimePolicy.lateReplyWatchMs;
+    const lateReplyPollMs = replyRuntimePolicy.lateReplyPollMs;
     const readTranscriptFallback = ensureTranscriptFallbackReader();
-    const readTranscriptFallbackResult = async ({
-      runtimeStorePath = storePath,
-      runtimeSessionId = sessionId,
-      runtimeTranscriptSessionId = sessionRuntimeId || sessionId,
-      minTimestamp = dispatchStartedAt,
-      logErrors = true,
-    } = {}) =>
-      readTranscriptFallback({
-        storePath: runtimeStorePath,
-        sessionId: runtimeSessionId,
-        transcriptSessionId: runtimeTranscriptSessionId,
-        minTimestamp,
-        logger: api.logger,
-        logErrors,
-      });
-    const tryFinishFromTranscript = async (minTimestamp = dispatchStartedAt) => {
-      const fallback = await readTranscriptFallbackResult({
-        runtimeStorePath: storePath,
-        runtimeSessionId: sessionId,
-        runtimeTranscriptSessionId: sessionRuntimeId || sessionId,
-        minTimestamp,
-      });
-      if (!fallback.text) return false;
-      dispatchState.streamFinished = await safeDeliverReply(fallback.text, "transcript-fallback");
-      if (dispatchState.streamFinished && fallback.transcriptMessageId) {
-        markTranscriptReplyDelivered(sessionId, fallback.transcriptMessageId);
-        api.logger.info?.(
-          `wecom(bot): filled reply from transcript session=${sessionId} messageId=${fallback.transcriptMessageId}`,
-        );
-      }
-      return dispatchState.streamFinished;
-    };
-    startLateReplyWatcher = (reason = "dispatch-timeout", minTimestamp = dispatchStartedAt) => {
-      if (dispatchState.streamFinished || lateReplyWatcherPromise) return false;
-      const watchStartedAt = Date.now();
-      const watchId = `wecom-bot:${sessionId}:${msgId || watchStartedAt}:${Math.random().toString(36).slice(2, 8)}`;
-      const runLateReplyWatcher = ensureLateReplyWatcherRunner();
-      lateReplyWatcherPromise = runLateReplyWatcher({
-        watchId,
-        reason,
-        sessionId,
-        sessionTranscriptId: sessionRuntimeId || sessionId,
-        accountId: "bot",
-        storePath,
-        logger: api.logger,
-        watchStartedAt,
-        watchMs: lateReplyWatchMs,
-        pollMs: lateReplyPollMs,
-        activeWatchers: ACTIVE_LATE_REPLY_WATCHERS,
-        isDelivered: () => dispatchState.streamFinished,
-        markDelivered: () => {
-          dispatchState.streamFinished = true;
-        },
-        sendText: async (text) => {
-          const delivered = await safeDeliverReply(text, "late-transcript-fallback");
-          if (!delivered) {
-            throw new Error("late transcript delivery failed");
-          }
-        },
-        onFailureFallback: async (watchErr) => {
-          if (dispatchState.streamFinished) return;
-          const reasonText = String(watchErr?.message || watchErr || "");
-          const isTimeout = reasonText.includes("timed out");
-          await safeDeliverReply(
-            isTimeout
-              ? "抱歉，当前模型请求超时或网络不稳定，请稍后重试。"
-              : `抱歉，当前模型请求超时或网络不稳定，请稍后重试。\n故障信息: ${reasonText.slice(0, 160)}`,
-            isTimeout ? "late-timeout-fallback" : "late-watcher-error",
-          );
-        },
-      }).finally(() => {
-        lateReplyWatcherPromise = null;
-      });
-      return true;
-    };
+    const lateReplyRuntime = createWecomBotLateReplyRuntime({
+      logger: api.logger,
+      sessionId,
+      sessionRuntimeId,
+      msgId,
+      storePath,
+      dispatchState,
+      dispatchStartedAt,
+      lateReplyWatchMs,
+      lateReplyPollMs,
+      readTranscriptFallback,
+      markTranscriptReplyDelivered,
+      safeDeliverReply,
+      runLateReplyWatcher: ensureLateReplyWatcherRunner(),
+      activeWatchers: ACTIVE_LATE_REPLY_WATCHERS,
+    });
+    readTranscriptFallbackResult = lateReplyRuntime.readTranscriptFallbackResult;
+    const tryFinishFromTranscript = lateReplyRuntime.tryFinishFromTranscript;
+    startLateReplyWatcher = lateReplyRuntime.startLateReplyWatcher;
     const dispatchHandlers = createWecomBotDispatchHandlers({
       api,
       streamId,
