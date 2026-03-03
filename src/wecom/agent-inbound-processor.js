@@ -1,4 +1,5 @@
 import { buildWecomInboundContextPayload, buildWecomInboundEnvelopePayload } from "./agent-context.js";
+import { createWecomAgentDispatchHandlers } from "./agent-dispatch-handlers.js";
 import { createWecomLateReplyWatcher } from "./agent-late-reply-watcher.js";
 import { buildWorkspaceAutoSendHints, computeStreamingTailText } from "./agent-reply-format.js";
 import { createWecomAgentTextSender } from "./agent-text-sender.js";
@@ -308,15 +309,17 @@ export function createWecomAgentInboundProcessor(deps = {}) {
     // 使用 gateway 内部 agent runtime API 调用 AI
     // 对标 Telegram 的 dispatchReplyWithBufferedBlockDispatcher
 
-    let hasDeliveredReply = false;
-    let hasDeliveredPartialReply = false;
-    let hasSentProgressNotice = false;
-    let blockTextFallback = "";
-    let streamChunkBuffer = "";
-    let streamChunkLastSentAt = 0;
-    let streamChunkSentCount = 0;
-    let streamChunkSendChain = Promise.resolve();
-    let suppressLateDispatcherDeliveries = false;
+    const dispatchState = {
+      hasDeliveredReply: false,
+      hasDeliveredPartialReply: false,
+      hasSentProgressNotice: false,
+      blockTextFallback: "",
+      streamChunkBuffer: "",
+      streamChunkLastSentAt: 0,
+      streamChunkSentCount: 0,
+      streamChunkSendChain: Promise.resolve(),
+      suppressLateDispatcherDeliveries: false,
+    };
     let progressNoticeTimer = null;
     let lateReplyWatcherPromise = null;
     const streamingPolicy = resolveWecomReplyStreamingPolicy(api);
@@ -351,25 +354,25 @@ export function createWecomAgentInboundProcessor(deps = {}) {
     const queuedNoticeText = "";
     const enqueueStreamingChunk = async (text, reason = "stream") => {
       const chunkText = String(text ?? "").trim();
-      if (!chunkText || hasDeliveredReply) return;
-      hasDeliveredPartialReply = true;
-      streamChunkSendChain = streamChunkSendChain
+      if (!chunkText || dispatchState.hasDeliveredReply) return;
+      dispatchState.hasDeliveredPartialReply = true;
+      dispatchState.streamChunkSendChain = dispatchState.streamChunkSendChain
         .then(async () => {
           await sendTextToUser(chunkText);
-          streamChunkLastSentAt = Date.now();
-          streamChunkSentCount += 1;
+          dispatchState.streamChunkLastSentAt = Date.now();
+          dispatchState.streamChunkSentCount += 1;
           api.logger.info?.(
-            `wecom: streamed block chunk ${streamChunkSentCount} (${reason}), bytes=${getByteLength(chunkText)}`,
+            `wecom: streamed block chunk ${dispatchState.streamChunkSentCount} (${reason}), bytes=${getByteLength(chunkText)}`,
           );
         })
         .catch((streamErr) => {
           api.logger.warn?.(`wecom: failed to send streaming block chunk: ${String(streamErr)}`);
         });
-      await streamChunkSendChain;
+      await dispatchState.streamChunkSendChain;
     };
     const flushStreamingBuffer = async ({ force = false, reason = "stream" } = {}) => {
-      if (!streamingEnabled || hasDeliveredReply) return false;
-      const pendingText = String(streamChunkBuffer ?? "");
+      if (!streamingEnabled || dispatchState.hasDeliveredReply) return false;
+      const pendingText = String(dispatchState.streamChunkBuffer ?? "");
       const candidate = markdownToWecomText(pendingText).trim();
       if (!candidate) return false;
 
@@ -377,28 +380,28 @@ export function createWecomAgentInboundProcessor(deps = {}) {
       const minIntervalMs = Math.max(200, Number(streamingPolicy.minIntervalMs || 1200));
       if (!force) {
         if (candidate.length < minChars) return false;
-        if (Date.now() - streamChunkLastSentAt < minIntervalMs) return false;
+        if (Date.now() - dispatchState.streamChunkLastSentAt < minIntervalMs) return false;
       }
 
-      streamChunkBuffer = "";
+      dispatchState.streamChunkBuffer = "";
       await enqueueStreamingChunk(candidate, reason);
       return true;
     };
     const sendProgressNotice = async (text = processingNoticeText) => {
       const noticeText = String(text ?? "").trim();
       if (!noticeText) return;
-      if (hasDeliveredReply || hasDeliveredPartialReply || hasSentProgressNotice) return;
-      hasSentProgressNotice = true;
+      if (dispatchState.hasDeliveredReply || dispatchState.hasDeliveredPartialReply || dispatchState.hasSentProgressNotice) return;
+      dispatchState.hasSentProgressNotice = true;
       await sendTextToUser(noticeText);
     };
     const sendFailureFallback = async (reason) => {
-      if (hasDeliveredReply) return;
-      hasDeliveredReply = true;
+      if (dispatchState.hasDeliveredReply) return;
+      dispatchState.hasDeliveredReply = true;
       const reasonText = String(reason ?? "unknown").slice(0, 160);
       await sendTextToUser(`抱歉，当前模型请求超时或网络不稳定，请稍后重试。\n故障信息: ${reasonText}`);
     };
     const startLateReplyWatcher = async (reason = "pending-final") => {
-      if (hasDeliveredReply || hasDeliveredPartialReply || lateReplyWatcherPromise) return;
+      if (dispatchState.hasDeliveredReply || dispatchState.hasDeliveredPartialReply || lateReplyWatcherPromise) return;
 
       const watchStartedAt = Date.now();
       const watchId = `${sessionId}:${msgId || watchStartedAt}:${Math.random().toString(36).slice(2, 8)}`;
@@ -414,9 +417,9 @@ export function createWecomAgentInboundProcessor(deps = {}) {
         watchMs: lateReplyWatchMs,
         pollMs: lateReplyPollMs,
         activeWatchers: ACTIVE_LATE_REPLY_WATCHERS,
-        isDelivered: () => hasDeliveredReply,
+        isDelivered: () => dispatchState.hasDeliveredReply,
         markDelivered: () => {
-          hasDeliveredReply = true;
+          dispatchState.hasDeliveredReply = true;
         },
         sendText: async (text) => sendTextToUser(text),
         onFailureFallback: async (err) => sendFailureFallback(err),
@@ -436,117 +439,33 @@ export function createWecomAgentInboundProcessor(deps = {}) {
 
       let dispatchResult = null;
       api.logger.info?.(`wecom: waiting for agent reply (timeout=${replyTimeoutMs}ms)`);
+      const dispatchHandlers = createWecomAgentDispatchHandlers({
+        api,
+        state: dispatchState,
+        streamingEnabled,
+        fromUser,
+        routedAgentId,
+        corpId,
+        corpSecret,
+        agentId,
+        proxyUrl,
+        flushStreamingBuffer,
+        sendFailureFallback,
+        sendTextToUser,
+        markdownToWecomText,
+        isAgentFailureText,
+        computeStreamingTailText,
+        autoSendWorkspaceFilesFromReplyText,
+        buildWorkspaceAutoSendHints,
+        sendWecomOutboundMediaBatch,
+      });
       dispatchResult = await withTimeout(
         runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
           ctx: ctxPayload,
           cfg,
           dispatcherOptions: {
-            deliver: async (payload, info) => {
-              if (suppressLateDispatcherDeliveries) {
-                api.logger.info?.("wecom: suppressed late dispatcher delivery after timeout handoff");
-                return;
-              }
-              if (hasDeliveredReply) {
-                api.logger.info?.("wecom: ignoring late reply because a reply was already delivered");
-                return;
-              }
-              if (info.kind === "block") {
-                if (payload.text) {
-                  if (blockTextFallback) blockTextFallback += "\n";
-                  blockTextFallback += payload.text;
-                  if (streamingEnabled) {
-                    streamChunkBuffer += payload.text;
-                    await flushStreamingBuffer({ force: false, reason: "block" });
-                  }
-                }
-                return;
-              }
-              if (info.kind !== "final") return;
-              // 发送回复到企业微信
-              let deliveredFinalText = false;
-              if (payload.text) {
-                if (isAgentFailureText(payload.text)) {
-                  api.logger.warn?.(`wecom: upstream returned failure-like payload: ${payload.text}`);
-                  await sendFailureFallback(payload.text);
-                  return;
-                }
-
-                api.logger.info?.(`wecom: delivering ${info.kind} reply, length=${payload.text.length}`);
-                if (streamingEnabled) {
-                  await flushStreamingBuffer({ force: true, reason: "final" });
-                  await streamChunkSendChain;
-                  if (streamChunkSentCount > 0) {
-                    const finalText = markdownToWecomText(payload.text).trim();
-                    const streamedText = markdownToWecomText(blockTextFallback).trim();
-                    const tailText = computeStreamingTailText({ finalText, streamedText });
-                    if (tailText) {
-                      await sendTextToUser(tailText);
-                    }
-                    hasDeliveredReply = true;
-                    deliveredFinalText = true;
-                    api.logger.info?.(
-                      `wecom: streaming reply completed for ${fromUser}, chunks=${streamChunkSentCount}${tailText ? " +tail" : ""}`,
-                    );
-                  }
-                }
-
-                // 应用 Markdown 转换
-                if (!deliveredFinalText) {
-                  const formattedReply = markdownToWecomText(payload.text);
-                  const workspaceAutoMedia = await autoSendWorkspaceFilesFromReplyText({
-                    text: formattedReply,
-                    routeAgentId: routedAgentId,
-                    corpId,
-                    corpSecret,
-                    agentId,
-                    toUser: fromUser,
-                    logger: api.logger,
-                    proxyUrl,
-                  });
-                  const workspaceHints = buildWorkspaceAutoSendHints(workspaceAutoMedia);
-                  const finalReplyText = [formattedReply, ...workspaceHints].filter(Boolean).join("\n\n");
-                  await sendTextToUser(finalReplyText);
-                  hasDeliveredReply = true;
-                  deliveredFinalText = true;
-                  api.logger.info?.(`wecom: sent AI reply to ${fromUser}: ${finalReplyText.slice(0, 50)}...`);
-                }
-              }
-
-              if (payload.mediaUrl || (payload.mediaUrls?.length ?? 0) > 0) {
-                const mediaResult = await sendWecomOutboundMediaBatch({
-                  corpId,
-                  corpSecret,
-                  agentId,
-                  toUser: fromUser,
-                  mediaUrl: payload.mediaUrl,
-                  mediaUrls: payload.mediaUrls,
-                  mediaType: payload.mediaType,
-                  logger: api.logger,
-                  proxyUrl,
-                });
-                if (mediaResult.sentCount > 0) {
-                  hasDeliveredReply = true;
-                }
-                if (mediaResult.failed.length > 0 && mediaResult.sentCount > 0) {
-                  await sendTextToUser(
-                    `已回传 ${mediaResult.sentCount} 个媒体，另有 ${mediaResult.failed.length} 个失败。`,
-                  );
-                }
-                if (mediaResult.sentCount === 0 && !deliveredFinalText) {
-                  await sendTextToUser("已收到模型返回的媒体结果，但媒体回传失败，请稍后重试。");
-                  hasDeliveredReply = true;
-                }
-              }
-            },
-            onError: async (err, info) => {
-              if (suppressLateDispatcherDeliveries) return;
-              api.logger.error?.(`wecom: ${info.kind} reply failed: ${String(err)}`);
-              try {
-                await sendFailureFallback(err);
-              } catch (fallbackErr) {
-                api.logger.error?.(`wecom: failed to send fallback reply: ${fallbackErr.message}`);
-              }
-            },
+            deliver: dispatchHandlers.deliver,
+            onError: dispatchHandlers.onError,
           },
           replyOptions: {
             // 企业微信不支持编辑消息；开启流式时会以“多条文本消息”模拟增量输出。
@@ -567,19 +486,19 @@ export function createWecomAgentInboundProcessor(deps = {}) {
 
       if (streamingEnabled) {
         await flushStreamingBuffer({ force: true, reason: "post-dispatch" });
-        await streamChunkSendChain;
+        await dispatchState.streamChunkSendChain;
       }
 
-      if (!hasDeliveredReply && !hasDeliveredPartialReply) {
-        const blockText = String(blockTextFallback || "").trim();
+      if (!dispatchState.hasDeliveredReply && !dispatchState.hasDeliveredPartialReply) {
+        const blockText = String(dispatchState.blockTextFallback || "").trim();
         if (blockText) {
           await sendTextToUser(markdownToWecomText(blockText));
-          hasDeliveredReply = true;
+          dispatchState.hasDeliveredReply = true;
           api.logger.info?.("wecom: delivered accumulated block reply as final fallback");
         }
       }
 
-      if (!hasDeliveredReply && !hasDeliveredPartialReply) {
+      if (!dispatchState.hasDeliveredReply && !dispatchState.hasDeliveredPartialReply) {
         const counts = dispatchResult?.counts ?? {};
         const queuedFinal = dispatchResult?.queuedFinal === true;
         const deliveredCount = Number(counts.final ?? 0) + Number(counts.block ?? 0) + Number(counts.tool ?? 0);
@@ -601,7 +520,7 @@ export function createWecomAgentInboundProcessor(deps = {}) {
     } catch (dispatchErr) {
       api.logger.warn?.(`wecom: dispatch failed: ${String(dispatchErr)}`);
       if (isDispatchTimeoutError(dispatchErr)) {
-        suppressLateDispatcherDeliveries = true;
+        dispatchState.suppressLateDispatcherDeliveries = true;
         await sendProgressNotice(queuedNoticeText);
         await startLateReplyWatcher("dispatch-timeout");
       } else {
