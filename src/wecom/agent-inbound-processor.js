@@ -1,6 +1,7 @@
 import { buildWecomInboundContextPayload, buildWecomInboundEnvelopePayload } from "./agent-context.js";
 import { createWecomAgentDispatchHandlers } from "./agent-dispatch-handlers.js";
 import { handleWecomAgentPostDispatchFallback } from "./agent-dispatch-fallback.js";
+import { createWecomAgentDispatchState, resolveWecomAgentReplyRuntimePolicy } from "./agent-reply-runtime.js";
 import { createWecomLateReplyWatcher } from "./agent-late-reply-watcher.js";
 import { buildWorkspaceAutoSendHints, computeStreamingTailText } from "./agent-reply-format.js";
 import { createWecomAgentTextSender } from "./agent-text-sender.js";
@@ -310,46 +311,17 @@ export function createWecomAgentInboundProcessor(deps = {}) {
     // 使用 gateway 内部 agent runtime API 调用 AI
     // 对标 Telegram 的 dispatchReplyWithBufferedBlockDispatcher
 
-    const dispatchState = {
-      hasDeliveredReply: false,
-      hasDeliveredPartialReply: false,
-      hasSentProgressNotice: false,
-      blockTextFallback: "",
-      streamChunkBuffer: "",
-      streamChunkLastSentAt: 0,
-      streamChunkSentCount: 0,
-      streamChunkSendChain: Promise.resolve(),
-      suppressLateDispatcherDeliveries: false,
-    };
+    const dispatchState = createWecomAgentDispatchState();
     let progressNoticeTimer = null;
     let lateReplyWatcherPromise = null;
     const streamingPolicy = resolveWecomReplyStreamingPolicy(api);
     const streamingEnabled = streamingPolicy.enabled === true;
-    const replyTimeoutMs = Math.max(
-      15000,
-      asNumber(cfg?.env?.vars?.WECOM_REPLY_TIMEOUT_MS ?? requireEnv("WECOM_REPLY_TIMEOUT_MS"), 90000),
-    );
-    const progressNoticeDelayMs = Math.max(
-      0,
-      asNumber(cfg?.env?.vars?.WECOM_PROGRESS_NOTICE_MS ?? requireEnv("WECOM_PROGRESS_NOTICE_MS"), 0),
-    );
-    const lateReplyWatchMs = Math.max(
-      30000,
-      Math.min(
-        10 * 60 * 1000,
-        asNumber(
-          cfg?.env?.vars?.WECOM_LATE_REPLY_WATCH_MS ?? requireEnv("WECOM_LATE_REPLY_WATCH_MS"),
-          Math.max(replyTimeoutMs, 180000),
-        ),
-      ),
-    );
-    const lateReplyPollMs = Math.max(
-      500,
-      Math.min(
-        10000,
-        asNumber(cfg?.env?.vars?.WECOM_LATE_REPLY_POLL_MS ?? requireEnv("WECOM_LATE_REPLY_POLL_MS"), 2000),
-      ),
-    );
+    const { replyTimeoutMs, progressNoticeDelayMs, lateReplyWatchMs, lateReplyPollMs } =
+      resolveWecomAgentReplyRuntimePolicy({
+        cfg,
+        asNumber,
+        requireEnv,
+      });
     // 自建应用模式默认不发送“处理中”提示，避免打扰用户。
     const processingNoticeText = "";
     const queuedNoticeText = "";
