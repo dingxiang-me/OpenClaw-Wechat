@@ -7,6 +7,7 @@ import {
   createWecomBotLateReplyRuntime,
   resolveWecomBotReplyRuntimePolicy,
 } from "./bot-reply-runtime.js";
+import { prepareWecomBotRuntimeContext } from "./bot-runtime-context.js";
 import { createWecomBotTranscriptFallbackReader } from "./bot-transcript-fallback.js";
 
 export function createWecomBotInboundProcessor(deps = {}) {
@@ -217,87 +218,32 @@ async function processBotInboundMessage({
       return;
     }
 
-    const route = resolveWecomAgentRoute({
+    const runtimeContext = await prepareWecomBotRuntimeContext({
+      api,
       runtime,
       cfg,
-      channel: "wecom",
-      accountId: "bot",
-      sessionKey: baseSessionId,
+      baseSessionId,
       fromUser,
       chatId,
       isGroupChat,
-      content: commandBody || messageText,
-      mentionPatterns: groupChatPolicy.mentionPatterns,
-      dynamicConfig: dynamicAgentPolicy,
+      msgId,
+      messageText,
+      commandBody,
+      originalContent,
+      fromAddress,
+      groupChatPolicy,
+      dynamicAgentPolicy,
       isAdminUser,
-      logger: api.logger,
+      resolveWecomAgentRoute,
+      seedDynamicAgentWorkspace,
+      buildWecomBotInboundEnvelopePayload,
+      buildWecomBotInboundContextPayload,
     });
-    routedAgentId = String(route?.agentId ?? "").trim();
-    sessionId = String(route?.sessionKey ?? "").trim() || baseSessionId;
-    api.logger.info?.(
-      `wecom(bot): routed agent=${route.agentId} session=${sessionId} matchedBy=${route.dynamicMatchedBy || route.matchedBy || "default"}`,
-    );
-    try {
-      await seedDynamicAgentWorkspace({
-        api,
-        agentId: route.agentId,
-        workspaceTemplate: dynamicAgentPolicy.workspaceTemplate,
-      });
-    } catch (seedErr) {
-      api.logger.warn?.(`wecom(bot): workspace seed failed: ${String(seedErr?.message || seedErr)}`);
-    }
-    const storePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
-      agentId: route.agentId,
-    });
-    const envelopeOptions = runtime.channel.reply.resolveEnvelopeFormatOptions(cfg);
-    const contextTimestamp = Date.now();
-    const body = runtime.channel.reply.formatInboundEnvelope({
-      ...buildWecomBotInboundEnvelopePayload({
-        fromUser,
-        chatId,
-        isGroupChat,
-        messageText,
-        timestamp: contextTimestamp,
-      }),
-      ...envelopeOptions,
-    });
-    const ctxPayload = runtime.channel.reply.finalizeInboundContext(
-      buildWecomBotInboundContextPayload({
-        body,
-        messageText,
-        originalContent,
-        commandBody,
-        fromAddress,
-        sessionId,
-        isGroupChat,
-        chatId,
-        fromUser,
-        msgId,
-        timestamp: contextTimestamp,
-      }),
-    );
-    const sessionRuntimeId = String(ctxPayload.SessionId ?? "").trim();
-
-    await runtime.channel.session.recordInboundSession({
-      storePath,
-      sessionKey: sessionId,
-      ctx: ctxPayload,
-      updateLastRoute: {
-        sessionKey: sessionId,
-        channel: "wecom",
-        to: fromUser,
-        accountId: "bot",
-      },
-      onRecordError: (err) => {
-        api.logger.warn?.(`wecom(bot): failed to record session: ${err}`);
-      },
-    });
-
-    runtime.channel.activity.record({
-      channel: "wecom",
-      accountId: "bot",
-      direction: "inbound",
-    });
+    routedAgentId = runtimeContext.routedAgentId;
+    sessionId = runtimeContext.sessionId;
+    const storePath = runtimeContext.storePath;
+    const ctxPayload = runtimeContext.ctxPayload;
+    const sessionRuntimeId = runtimeContext.sessionRuntimeId;
 
     const dispatchState = createWecomBotDispatchState();
     const replyRuntimePolicy = resolveWecomBotReplyRuntimePolicy({ botModeConfig });
