@@ -1,6 +1,7 @@
 import { createWecomDeliveryRouter, parseWecomResponseUrlResult } from "../core/delivery-router.js";
 import { buildWecomBotMixedPayload, normalizeWecomBotOutboundMediaUrls } from "./webhook-adapter.js";
 import { resolveWecomOutboundMediaTarget } from "./media-url-utils.js";
+import { createWecomActiveStreamDeliverer } from "./outbound-active-stream.js";
 import { createWecomResponseUrlSender } from "./outbound-response-url.js";
 import { createWecomWebhookBotMediaSender } from "./outbound-webhook-media.js";
 import { buildActiveStreamMsgItems } from "./outbound-stream-msg-item.js";
@@ -82,6 +83,15 @@ export function createWecomBotReplyDeliverer({
     parseWecomResponseUrlResult,
     fetchImpl,
   });
+  const deliverActiveStreamReply = createWecomActiveStreamDeliverer({
+    hasBotStream,
+    resolveActiveBotStreamId,
+    drainBotStreamMedia,
+    normalizeWecomBotOutboundMediaUrls,
+    buildActiveStreamMsgItems,
+    finishBotStream,
+    fetchMediaFromUrl,
+  });
 
   async function deliverBotReplyText({
     api,
@@ -125,88 +135,17 @@ export function createWecomBotReplyDeliverer({
       observability: observabilityPolicy,
       handlers: {
         active_stream: async ({ text: content }) => {
-          let targetStreamId = String(streamId ?? "").trim();
-          let recoveredBySession = false;
-          if (!targetStreamId || !hasBotStream(targetStreamId)) {
-            const recovered = String(resolveActiveBotStreamId(normalizedSessionId) ?? "").trim();
-            if (recovered && hasBotStream(recovered)) {
-              targetStreamId = recovered;
-              recoveredBySession = true;
-            }
-          }
-          if (!targetStreamId || !hasBotStream(targetStreamId)) {
-            return { ok: false, reason: "stream-missing" };
-          }
-
-          const drainedQueuedMedia = drainBotStreamMedia(targetStreamId);
-          const queuedMedia = Array.isArray(drainedQueuedMedia) ? drainedQueuedMedia : [];
-          const queuedMediaUrls = [];
-          let queuedMediaType = "";
-          for (const item of queuedMedia) {
-            const url = String(item?.url ?? "").trim();
-            if (!url) continue;
-            queuedMediaUrls.push(url);
-            if (!queuedMediaType) {
-              queuedMediaType = String(item?.mediaType ?? "").trim().toLowerCase();
-            }
-          }
-          const mergedMediaUrls = normalizeWecomBotOutboundMediaUrls({
-            mediaUrls: [...normalizedMediaUrls, ...queuedMediaUrls],
+          return deliverActiveStreamReply({
+            streamId,
+            sessionId: normalizedSessionId,
+            content,
+            normalizedMediaUrls,
+            mediaType,
+            normalizedText,
+            fallbackText,
+            botProxyUrl,
+            logger: api.logger,
           });
-          const effectiveMediaType = String(mediaType ?? "").trim().toLowerCase() || queuedMediaType || undefined;
-
-          let streamMsgItem = [];
-          let fallbackMediaUrls = mergedMediaUrls;
-          if (mergedMediaUrls.length > 0) {
-            const processed = await buildActiveStreamMsgItems({
-              mediaUrls: mergedMediaUrls,
-              mediaType: effectiveMediaType,
-              fetchMediaFromUrl,
-              proxyUrl: botProxyUrl,
-              logger: api.logger,
-            });
-            streamMsgItem = processed.msgItem;
-            fallbackMediaUrls = processed.fallbackUrls;
-          }
-
-          let streamContent = String(content ?? "").trim();
-          if (!streamContent) {
-            streamContent =
-              fallbackMediaUrls.length > 0
-                ? fallbackText
-                : streamMsgItem.length > 0
-                  ? "已收到模型返回的媒体结果。"
-                  : "";
-          }
-          if (
-            !normalizedText &&
-            streamMsgItem.length > 0 &&
-            fallbackMediaUrls.length === 0 &&
-            streamContent === fallbackText
-          ) {
-            streamContent = "已收到模型返回的媒体结果。";
-          }
-          if (fallbackMediaUrls.length > 0) {
-            const suffix = `\n\n媒体链接：\n${fallbackMediaUrls.join("\n")}`;
-            streamContent = `${streamContent}${suffix}`.trim();
-          }
-          if (!streamContent) {
-            streamContent = "已收到模型返回的结果。";
-          }
-
-          finishBotStream(targetStreamId, streamContent, {
-            msgItem: streamMsgItem,
-          });
-          return {
-            ok: true,
-            meta: {
-              streamId: targetStreamId,
-              recoveredBySession,
-              mediaAsLinks: fallbackMediaUrls.length > 0,
-              msgItemCount: streamMsgItem.length,
-              queuedMediaCount: queuedMediaUrls.length,
-            },
-          };
         },
         response_url: async ({ text: content }) => {
           const targetUrl = inlineResponseUrl || cachedResponseUrl?.url || "";
