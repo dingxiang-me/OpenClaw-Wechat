@@ -1,4 +1,5 @@
 import { createWecomLateReplyWatcher } from "./agent-late-reply-watcher.js";
+import { buildWecomBotInboundContextPayload, buildWecomBotInboundEnvelopePayload } from "./bot-context.js";
 
 export function createWecomBotInboundProcessor(deps = {}) {
   const {
@@ -377,38 +378,32 @@ async function processBotInboundMessage({
       agentId: route.agentId,
     });
     const envelopeOptions = runtime.channel.reply.resolveEnvelopeFormatOptions(cfg);
+    const contextTimestamp = Date.now();
     const body = runtime.channel.reply.formatInboundEnvelope({
-      channel: "WeCom Bot",
-      from: isGroupChat && chatId ? `${fromUser} (group:${chatId})` : fromUser,
-      timestamp: Date.now(),
-      body: messageText,
-      chatType: isGroupChat ? "group" : "direct",
-      sender: {
-        name: fromUser,
-        id: fromUser,
-      },
+      ...buildWecomBotInboundEnvelopePayload({
+        fromUser,
+        chatId,
+        isGroupChat,
+        messageText,
+        timestamp: contextTimestamp,
+      }),
       ...envelopeOptions,
     });
-    const ctxPayload = runtime.channel.reply.finalizeInboundContext({
-      Body: body,
-      BodyForAgent: messageText,
-      RawBody: originalContent,
-      CommandBody: commandBody,
-      From: fromAddress,
-      To: fromAddress,
-      SessionKey: sessionId,
-      AccountId: "bot",
-      ChatType: isGroupChat ? "group" : "direct",
-      ConversationLabel: isGroupChat && chatId ? `group:${chatId}` : fromUser,
-      SenderName: fromUser,
-      SenderId: fromUser,
-      Provider: "wecom",
-      Surface: "wecom-bot",
-      MessageSid: msgId || `wecom-bot-${Date.now()}`,
-      Timestamp: Date.now(),
-      OriginatingChannel: "wecom",
-      OriginatingTo: fromAddress,
-    });
+    const ctxPayload = runtime.channel.reply.finalizeInboundContext(
+      buildWecomBotInboundContextPayload({
+        body,
+        messageText,
+        originalContent,
+        commandBody,
+        fromAddress,
+        sessionId,
+        isGroupChat,
+        chatId,
+        fromUser,
+        msgId,
+        timestamp: contextTimestamp,
+      }),
+    );
     const sessionRuntimeId = String(ctxPayload.SessionId ?? "").trim();
 
     await runtime.channel.session.recordInboundSession({
