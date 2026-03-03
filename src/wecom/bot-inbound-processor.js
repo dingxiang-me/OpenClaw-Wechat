@@ -1,3 +1,5 @@
+import { createWecomLateReplyWatcher } from "./agent-late-reply-watcher.js";
+
 export function createWecomBotInboundProcessor(deps = {}) {
   const {
     buildWecomBotSessionId,
@@ -47,6 +49,21 @@ export function createWecomBotInboundProcessor(deps = {}) {
     scheduleTempFileCleanup,
     ACTIVE_LATE_REPLY_WATCHERS,
   } = deps;
+
+  let lateReplyWatcherRunner = null;
+  function ensureLateReplyWatcherRunner() {
+    if (lateReplyWatcherRunner) return lateReplyWatcherRunner;
+    lateReplyWatcherRunner = createWecomLateReplyWatcher({
+      resolveSessionTranscriptFilePath,
+      readTranscriptAppendedChunk,
+      parseLateAssistantReplyFromTranscriptLine,
+      hasTranscriptReplyBeenDelivered,
+      markTranscriptReplyDelivered,
+      sleep,
+      markdownToWecomText,
+    });
+    return lateReplyWatcherRunner;
+  }
 
 async function processBotInboundMessage({
   api,
@@ -421,82 +438,101 @@ async function processBotInboundMessage({
     const replyTimeoutMs = Math.max(15000, Number(botModeConfig?.replyTimeoutMs) || 90000);
     const lateReplyWatchMs = Math.max(30000, Number(botModeConfig?.lateReplyWatchMs) || 180000);
     const lateReplyPollMs = Math.max(500, Number(botModeConfig?.lateReplyPollMs) || 2000);
-    const tryFinishFromTranscript = async (minTimestamp = dispatchStartedAt) => {
+    const readTranscriptFallback = async ({
+      runtimeStorePath = storePath,
+      runtimeSessionId = sessionId,
+      runtimeTranscriptSessionId = sessionRuntimeId || sessionId,
+      minTimestamp = dispatchStartedAt,
+      logErrors = true,
+    } = {}) => {
       try {
         const transcriptPath = await resolveSessionTranscriptFilePath({
-          storePath,
-          sessionKey: sessionId,
-          sessionId: sessionRuntimeId || sessionId,
+          storePath: runtimeStorePath,
+          sessionKey: runtimeSessionId,
+          sessionId: runtimeTranscriptSessionId,
           logger: api.logger,
         });
         const { chunk } = await readTranscriptAppendedChunk(transcriptPath, 0);
-        if (!chunk) return false;
+        if (!chunk) return { text: "", transcriptMessageId: "" };
         const lines = chunk.split("\n");
         let latestReply = null;
         for (const line of lines) {
           const parsedReply = parseLateAssistantReplyFromTranscriptLine(line, minTimestamp);
           if (!parsedReply) continue;
-          if (hasTranscriptReplyBeenDelivered(sessionId, parsedReply.transcriptMessageId)) continue;
+          if (hasTranscriptReplyBeenDelivered(runtimeSessionId, parsedReply.transcriptMessageId)) continue;
           latestReply = parsedReply;
         }
-        if (!latestReply?.text) return false;
-        const transcriptText = markdownToWecomText(latestReply.text).trim();
-        if (!transcriptText) return false;
-        streamFinished = await safeDeliverReply(transcriptText, "transcript-fallback");
-        if (streamFinished) {
-          markTranscriptReplyDelivered(sessionId, latestReply.transcriptMessageId);
-        }
-        api.logger.info?.(
-          `wecom(bot): filled reply from transcript session=${sessionId} messageId=${latestReply.transcriptMessageId}`,
-        );
-        return true;
+        const text = latestReply?.text ? markdownToWecomText(latestReply.text).trim() : "";
+        if (!text) return { text: "", transcriptMessageId: "" };
+        return {
+          text,
+          transcriptMessageId: String(latestReply?.transcriptMessageId ?? "").trim(),
+        };
       } catch (err) {
-        api.logger.warn?.(`wecom(bot): transcript fallback failed: ${String(err?.message || err)}`);
-        return false;
+        if (logErrors) {
+          api.logger.warn?.(`wecom(bot): transcript fallback failed: ${String(err?.message || err)}`);
+        }
+        return { text: "", transcriptMessageId: "" };
       }
+    };
+    const tryFinishFromTranscript = async (minTimestamp = dispatchStartedAt) => {
+      const fallback = await readTranscriptFallback({
+        runtimeStorePath: storePath,
+        runtimeSessionId: sessionId,
+        runtimeTranscriptSessionId: sessionRuntimeId || sessionId,
+        minTimestamp,
+      });
+      if (!fallback.text) return false;
+      streamFinished = await safeDeliverReply(fallback.text, "transcript-fallback");
+      if (streamFinished && fallback.transcriptMessageId) {
+        markTranscriptReplyDelivered(sessionId, fallback.transcriptMessageId);
+        api.logger.info?.(
+          `wecom(bot): filled reply from transcript session=${sessionId} messageId=${fallback.transcriptMessageId}`,
+        );
+      }
+      return streamFinished;
     };
     startLateReplyWatcher = (reason = "dispatch-timeout", minTimestamp = dispatchStartedAt) => {
       if (streamFinished || lateReplyWatcherPromise) return false;
       const watchStartedAt = Date.now();
       const watchId = `wecom-bot:${sessionId}:${msgId || watchStartedAt}:${Math.random().toString(36).slice(2, 8)}`;
-      ACTIVE_LATE_REPLY_WATCHERS.set(watchId, {
-        sessionId,
-        sessionKey: sessionId,
-        accountId: "bot",
-        startedAt: watchStartedAt,
+      const runLateReplyWatcher = ensureLateReplyWatcherRunner();
+      lateReplyWatcherPromise = runLateReplyWatcher({
+        watchId,
         reason,
-      });
-      lateReplyWatcherPromise = (async () => {
-        try {
-          api.logger.info?.(
-            `wecom(bot): late reply watcher started session=${sessionId} reason=${reason} timeoutMs=${lateReplyWatchMs}`,
+        sessionId,
+        sessionTranscriptId: sessionRuntimeId || sessionId,
+        accountId: "bot",
+        storePath,
+        logger: api.logger,
+        watchStartedAt,
+        watchMs: lateReplyWatchMs,
+        pollMs: lateReplyPollMs,
+        activeWatchers: ACTIVE_LATE_REPLY_WATCHERS,
+        isDelivered: () => streamFinished,
+        markDelivered: () => {
+          streamFinished = true;
+        },
+        sendText: async (text) => {
+          const delivered = await safeDeliverReply(text, "late-transcript-fallback");
+          if (!delivered) {
+            throw new Error("late transcript delivery failed");
+          }
+        },
+        onFailureFallback: async (watchErr) => {
+          if (streamFinished) return;
+          const reasonText = String(watchErr?.message || watchErr || "");
+          const isTimeout = reasonText.includes("timed out");
+          await safeDeliverReply(
+            isTimeout
+              ? "抱歉，当前模型请求超时或网络不稳定，请稍后重试。"
+              : `抱歉，当前模型请求超时或网络不稳定，请稍后重试。\n故障信息: ${reasonText.slice(0, 160)}`,
+            isTimeout ? "late-timeout-fallback" : "late-watcher-error",
           );
-          const deadline = watchStartedAt + lateReplyWatchMs;
-          while (Date.now() < deadline) {
-            if (streamFinished) return;
-            const delivered = await tryFinishFromTranscript(minTimestamp);
-            if (delivered || streamFinished) return;
-            await sleep(lateReplyPollMs);
-          }
-          if (!streamFinished) {
-            api.logger.warn?.(
-              `wecom(bot): late reply watcher timed out session=${sessionId} timeoutMs=${lateReplyWatchMs}`,
-            );
-            await safeDeliverReply("抱歉，当前模型请求超时或网络不稳定，请稍后重试。", "late-timeout-fallback");
-          }
-        } catch (watchErr) {
-          api.logger.warn?.(`wecom(bot): late reply watcher failed: ${String(watchErr?.message || watchErr)}`);
-          if (!streamFinished) {
-            await safeDeliverReply(
-              `抱歉，当前模型请求超时或网络不稳定，请稍后重试。\n故障信息: ${String(watchErr?.message || watchErr).slice(0, 160)}`,
-              "late-watcher-error",
-            );
-          }
-        } finally {
-          ACTIVE_LATE_REPLY_WATCHERS.delete(watchId);
-          lateReplyWatcherPromise = null;
-        }
-      })();
+        },
+      }).finally(() => {
+        lateReplyWatcherPromise = null;
+      });
       return true;
     };
 
@@ -604,39 +640,22 @@ async function processBotInboundMessage({
       if (watcherStarted) return;
     }
     try {
-      const fallbackFromTranscript = await (async () => {
-        try {
-          const runtimeSessionId = sessionId || buildWecomBotSessionId(fromUser);
-          const runtimeStorePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
-            agentId: routedAgentId || "main",
-          });
-          const transcriptPath = await resolveSessionTranscriptFilePath({
-            storePath: runtimeStorePath,
-            sessionKey: runtimeSessionId,
-            sessionId: runtimeSessionId,
-            logger: api.logger,
-          });
-          const { chunk } = await readTranscriptAppendedChunk(transcriptPath, 0);
-          if (!chunk) return "";
-          const lines = chunk.split("\n");
-          let latestReply = null;
-          for (const line of lines) {
-            const parsedReply = parseLateAssistantReplyFromTranscriptLine(line, dispatchStartedAt);
-            if (!parsedReply) continue;
-            if (hasTranscriptReplyBeenDelivered(runtimeSessionId, parsedReply.transcriptMessageId)) continue;
-            latestReply = parsedReply;
-          }
-          const text = latestReply?.text ? markdownToWecomText(latestReply.text).trim() : "";
-          if (text && latestReply?.transcriptMessageId) {
-            markTranscriptReplyDelivered(runtimeSessionId, latestReply.transcriptMessageId);
-          }
-          return text || "";
-        } catch {
-          return "";
+      const runtimeSessionId = sessionId || buildWecomBotSessionId(fromUser);
+      const runtimeStorePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
+        agentId: routedAgentId || "main",
+      });
+      const fallbackFromTranscript = await readTranscriptFallback({
+        runtimeStorePath,
+        runtimeSessionId,
+        runtimeTranscriptSessionId: runtimeSessionId,
+        minTimestamp: dispatchStartedAt,
+        logErrors: false,
+      });
+      if (fallbackFromTranscript.text) {
+        const delivered = await safeDeliverReply(fallbackFromTranscript.text, "catch-transcript-fallback");
+        if (delivered && fallbackFromTranscript.transcriptMessageId) {
+          markTranscriptReplyDelivered(runtimeSessionId, fallbackFromTranscript.transcriptMessageId);
         }
-      })();
-      if (fallbackFromTranscript) {
-        await safeDeliverReply(fallbackFromTranscript, "catch-transcript-fallback");
         return;
       }
     } catch {
