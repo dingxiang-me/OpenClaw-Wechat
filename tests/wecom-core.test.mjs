@@ -487,6 +487,26 @@ test("resolveWecomBotModeConfig supports account-scoped bot config and legacy ke
   assert.equal(cfg.placeholderText, "sales processing");
 });
 
+test("resolveWecomBotModeConfig auto-assigns non-default bot webhookPath when missing", () => {
+  const cfg = core.resolveWecomBotModeConfig({
+    channelConfig: {
+      accounts: {
+        sales: {
+          bot: {
+            enabled: true,
+            token: "sales-token",
+            encodingAesKey: "sales-aes",
+          },
+        },
+      },
+    },
+    envVars: {},
+    processEnv: {},
+    accountId: "sales",
+  });
+  assert.equal(cfg.webhookPath, "/wecom/sales/bot/callback");
+});
+
 test("resolveWecomBotModeAccountsConfig includes config/env scoped bot accounts", () => {
   const configs = core.resolveWecomBotModeAccountsConfig({
     channelConfig: {

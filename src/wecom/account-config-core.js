@@ -1,3 +1,5 @@
+import { buildDefaultAgentWebhookPath } from "./account-paths.js";
+
 export function asNumber(v, fallback = null) {
   if (v == null) return fallback;
   const n = Number(v);
@@ -35,7 +37,8 @@ export function normalizeAccountConfig({ raw, accountId, normalizeWecomWebhookTa
   const agentId = asNumber(raw.agentId);
   const callbackToken = pickFirstNonEmptyString(raw.callbackToken, raw.token);
   const callbackAesKey = pickFirstNonEmptyString(raw.callbackAesKey, raw.encodingAesKey);
-  const webhookPath = String(raw.webhookPath ?? "/wecom/callback").trim() || "/wecom/callback";
+  const defaultWebhookPath = buildDefaultAgentWebhookPath(normalizedId);
+  const webhookPath = String(raw.webhookPath ?? defaultWebhookPath).trim() || defaultWebhookPath;
   const outboundProxy = String(raw.outboundProxy ?? raw.proxyUrl ?? raw.proxy ?? "").trim();
   const webhooks = normalizeWecomWebhookTargetMap(raw.webhooks);
   const allowFrom = raw.allowFrom;
@@ -84,7 +87,8 @@ export function readAccountConfigFromEnv({
   const agentId = asNumber(readVar("AGENT_ID"));
   const callbackToken = pickFirstNonEmptyString(readVar("CALLBACK_TOKEN"), readVar("TOKEN"));
   const callbackAesKey = pickFirstNonEmptyString(readVar("CALLBACK_AES_KEY"), readVar("ENCODING_AES_KEY"));
-  const webhookPath = String(readVar("WEBHOOK_PATH") ?? "/wecom/callback").trim() || "/wecom/callback";
+  const defaultWebhookPath = buildDefaultAgentWebhookPath(normalizedId);
+  const webhookPath = String(readVar("WEBHOOK_PATH") ?? defaultWebhookPath).trim() || defaultWebhookPath;
   const outboundProxyRaw =
     readVar("PROXY") ??
     (normalizedId === "default"

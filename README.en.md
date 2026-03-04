@@ -137,7 +137,7 @@ openclaw plugins install @dingxiang-me/openclaw-wechat
 | `agentId` | number/string | - | Agent mode |
 | `callbackToken` | string | - | sensitive |
 | `callbackAesKey` | string | - | sensitive |
-| `webhookPath` | string | `/wecom/callback` | Agent callback path |
+| `webhookPath` | string | `/wecom/callback` | Agent callback path (auto `/wecom/<accountId>/callback` when non-default account leaves it empty) |
 | `outboundProxy` | string | - | WeCom API proxy |
 | `webhooks` | object | - | named webhook target map (`{ "ops": "https://...key=xxx" }`) |
 | `accounts` | object | - | multi-account map (supports `accounts.<id>.bot` overrides) |
@@ -151,7 +151,7 @@ Compatibility note: legacy Agent keys `token` / `encodingAesKey` are still accep
 | `enabled` | boolean | `false` | enable Bot mode |
 | `token` | string | - | sensitive |
 | `encodingAesKey` | string | - | sensitive, 43 chars |
-| `webhookPath` | string | `/wecom/bot/callback` | Bot callback path |
+| `webhookPath` | string | `/wecom/bot/callback` | Bot callback path (auto `/wecom/<accountId>/bot/callback` when non-default account leaves it empty) |
 | `placeholderText` | string | processing text | stream initial placeholder |
 | `streamExpireMs` | integer | `600000` | 30s ~ 1h |
 | `replyTimeoutMs` | integer | `90000` | Bot reply timeout (15s ~ 10m) |
@@ -298,6 +298,7 @@ See [`docs/troubleshooting/coexistence.md`](./docs/troubleshooting/coexistence.m
 | Inbound received but no reply | gateway logs + dispatch status | timeout, queueing, policy block |
 | Bot image parse failed | `wecom(bot): failed to fetch image url` | expired URL/non-image stream |
 | Voice transcription failed | local command/model path | whisper/ffmpeg environment issue |
+| Startup logs show `wecom: account diagnosis ...` | diagnosis code + account list | multi-account token/agent/path conflict risk |
 | gettoken failed | WeCom API result | wrong credentials or network/proxy |
 
 Useful commands:
@@ -320,6 +321,7 @@ npm run wecom:bot:selfcheck
 | `npm run wecom:agent:selfcheck -- --account <id>` | Agent E2E self-check (URL verify + encrypted POST) |
 | `npm run wecom:bot:selfcheck` | Bot E2E self-check (signature/encryption/stream-refresh) |
 | `npm run wecom:remote:e2e -- --mode all --agent-url <public-agent-callback> --bot-url <public-bot-callback>` | remote matrix verification (Agent + Bot) |
+| `npm run wecom:e2e:scenario -- --scenario full-smoke --agent-url <public-agent-callback> --bot-url <public-bot-callback>` | scenario-based E2E (preset smoke/queue workflows) |
 | `GitHub Actions -> CI -> Run workflow (run_remote_e2e=true)` | trigger remote E2E in CI (uses `WECOM_E2E_*` secrets) |
 | `npm run wecom:smoke` | smoke test after upgrades (Agent path) |
 | `npm run wecom:smoke -- --with-bot-e2e` | smoke test after upgrades (with Bot E2E) |

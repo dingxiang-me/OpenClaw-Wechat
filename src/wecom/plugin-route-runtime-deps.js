@@ -49,6 +49,7 @@ export function createPluginRouteRuntimeDeps(context = {}) {
       resolveWecomDynamicAgentPolicy: context.resolveWecomDynamicAgentPolicy,
       resolveWecomBotConfig: context.resolveWecomBotConfig,
       resolveWecomBotConfigs: context.resolveWecomBotConfigs,
+      listEnabledWecomAccounts: context.listEnabledWecomAccounts,
       getWecomConfig: context.getWecomConfig,
       wecomChannelPlugin: context.wecomChannelPlugin,
     },

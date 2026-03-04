@@ -636,7 +636,8 @@
             },
             "webhookPath": {
               "type": "string",
-              "default": "/wecom/callback"
+              "default": "/wecom/callback",
+              "description": "Agent 回调路径；非 default 账户未填写时自动使用 /wecom/<accountId>/callback"
             },
             "bot": {
               "type": "object",
@@ -669,7 +670,7 @@
                 "webhookPath": {
                   "type": "string",
                   "default": "/wecom/bot/callback",
-                  "description": "Bot 模式 webhook 路径"
+                  "description": "Bot 模式 webhook 路径；非 default 账户未填写时自动使用 /wecom/<accountId>/bot/callback"
                 },
                 "placeholderText": {
                   "type": "string",

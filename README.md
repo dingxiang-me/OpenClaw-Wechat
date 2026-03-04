@@ -269,7 +269,7 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | `agentId` | number/string | - | 应用 AgentId |
 | `callbackToken` | string | - | 回调 Token（敏感） |
 | `callbackAesKey` | string | - | 回调 AES Key（敏感） |
-| `webhookPath` | string | `/wecom/callback` | Agent 回调路径 |
+| `webhookPath` | string | `/wecom/callback` | Agent 回调路径（非 default 账户未配置时自动生成 `/wecom/<accountId>/callback`） |
 | `outboundProxy` | string | - | WeCom 出站代理 |
 | `webhooks` | object | - | 命名 Webhook 目标映射（如 `{ "ops": "https://...key=xxx" }`） |
 | `accounts` | object | - | 多账户配置（支持 `accounts.<id>.bot` 独立 Bot 配置） |
@@ -283,7 +283,7 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | `enabled` | boolean | `false` | 启用 Bot 模式 |
 | `token` | string | - | Bot 回调 Token（敏感） |
 | `encodingAesKey` | string | - | Bot 回调 AESKey（43 位，敏感） |
-| `webhookPath` | string | `/wecom/bot/callback` | Bot 回调路径 |
+| `webhookPath` | string | `/wecom/bot/callback` | Bot 回调路径（非 default 账户未配置时自动生成 `/wecom/<accountId>/bot/callback`） |
 | `placeholderText` | string | `消息已收到...` | stream 初始占位文案（可设为空字符串） |
 | `streamExpireMs` | integer | `600000` | stream 状态保留时间（30s~1h） |
 | `replyTimeoutMs` | integer | `90000` | Bot 等待模型回包超时（15s~10m） |
@@ -513,6 +513,7 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | 能收到消息但不回复 | `openclaw gateway status` + `openclaw logs --follow` | 模型超时、会话排队、权限策略拦截 | 查看 dispatch/allowFrom/commands 日志 |
 | Bot 图片识别失败 | `wecom(bot): failed to fetch image url` | URL 失效、返回非图像流 | 已支持 octet-stream+解密兜底，先升级到最新版本 |
 | 语音转写失败 | `wecom: voice transcription failed` | 本地命令或模型路径错误 | 检查 `command`、`modelPath`、`ffmpeg` |
+| 启动出现账号体检告警 | `wecom: account diagnosis ...` | 多账号 Token/Agent/路径存在冲突风险 | 按日志 `code` 与账户列表调整配置，优先处理 `warn` 级别 |
 | gettoken 失败 | 企业微信 API 返回码 | CorpId/Secret 错或网络受限 | 检查凭据/配置代理 |
 
 ### 推荐检查命令
@@ -538,6 +539,7 @@ npm run wecom:bot:selfcheck
 | `npm run wecom:agent:selfcheck -- --account <id>` | Agent 端到端链路体检（URL 验证 + 加密 POST） |
 | `npm run wecom:bot:selfcheck` | Bot 端到端链路体检（签名/加密/stream-refresh） |
 | `npm run wecom:remote:e2e -- --mode all --agent-url <公网Agent回调> --bot-url <公网Bot回调>` | 远端矩阵验证（Agent+Bot） |
+| `npm run wecom:e2e:scenario -- --scenario full-smoke --agent-url <公网Agent回调> --bot-url <公网Bot回调>` | 场景化 E2E（预置 smoke/queue 场景） |
 | `GitHub Actions -> CI -> Run workflow (run_remote_e2e=true)` | 在仓库 CI 手动触发远程 E2E（使用 `WECOM_E2E_*` secrets） |
 | `npm run wecom:smoke` | 升级后快速回归（Agent 主链路） |
 | `npm run wecom:smoke -- --with-bot-e2e` | 升级后快速回归（含 Bot E2E） |

@@ -44,6 +44,7 @@
     "wecom:agent:selfcheck": "node ./scripts/wecom-agent-selfcheck.mjs",
     "wecom:bot:selfcheck": "node ./scripts/wecom-bot-selfcheck.mjs",
     "wecom:remote:e2e": "node ./scripts/wecom-remote-e2e.mjs",
+    "wecom:e2e:scenario": "node ./scripts/wecom-e2e-scenario.mjs",
     "wecom:smoke": "bash ./scripts/wecom-smoke.sh"
   },
   "dependencies": {

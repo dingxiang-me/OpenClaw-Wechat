@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { buildDefaultBotWebhookPath } from "./wecom/account-paths.js";
 
 export const WECOM_TEXT_BYTE_LIMIT = 2000;
 export const INBOUND_DEDUPE_TTL_MS = 5 * 60 * 1000;
@@ -1150,7 +1151,7 @@ export function resolveWecomBotModeConfig({
     botConfig.webhookPath,
     scopedEnvVars?.WECOM_BOT_WEBHOOK_PATH,
     scopedProcessEnv?.WECOM_BOT_WEBHOOK_PATH,
-    "/wecom/bot/callback",
+    buildDefaultBotWebhookPath(normalizedAccountId),
   );
   const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj ?? {}, key);
   const placeholderText = (() => {
@@ -1204,7 +1205,7 @@ export function resolveWecomBotModeConfig({
     enabled,
     token: token || undefined,
     encodingAesKey: encodingAesKey || undefined,
-    webhookPath: webhookPath || "/wecom/bot/callback",
+    webhookPath: webhookPath || buildDefaultBotWebhookPath(normalizedAccountId),
     placeholderText,
     streamExpireMs,
     replyTimeoutMs,

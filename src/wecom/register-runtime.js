@@ -1,3 +1,5 @@
+import { analyzeWecomAccountConflicts } from "./account-diagnostics.js";
+
 export function createWecomRegisterRuntime({
   setGatewayRuntime,
   syncWecomSessionQueuePolicy,
@@ -7,6 +9,7 @@ export function createWecomRegisterRuntime({
   resolveWecomDynamicAgentPolicy,
   resolveWecomBotConfig,
   resolveWecomBotConfigs,
+  listEnabledWecomAccounts,
   getWecomConfig,
   wecomChannelPlugin,
   wecomRouteRegistrar,
@@ -34,6 +37,9 @@ export function createWecomRegisterRuntime({
   }
   if (resolveWecomBotConfigs != null && typeof resolveWecomBotConfigs !== "function") {
     throw new Error("createWecomRegisterRuntime: resolveWecomBotConfigs must be a function");
+  }
+  if (listEnabledWecomAccounts != null && typeof listEnabledWecomAccounts !== "function") {
+    throw new Error("createWecomRegisterRuntime: listEnabledWecomAccounts must be a function");
   }
   if (typeof getWecomConfig !== "function") {
     throw new Error("createWecomRegisterRuntime: getWecomConfig is required");
@@ -94,6 +100,17 @@ export function createWecomRegisterRuntime({
       api.logger.info?.(
         `wecom: dynamic-agent on (mode=${dynamicAgentPolicy.mode}, userMap=${Object.keys(dynamicAgentPolicy.userMap || {}).length}, groupMap=${Object.keys(dynamicAgentPolicy.groupMap || {}).length}, mentionMap=${Object.keys(dynamicAgentPolicy.mentionMap || {}).length})`,
       );
+    }
+    if (typeof listEnabledWecomAccounts === "function") {
+      const accountDiagnostics = analyzeWecomAccountConflicts({
+        accounts: listEnabledWecomAccounts(api),
+        botConfigs: enabledBotConfigs,
+      });
+      for (const issue of accountDiagnostics.issues) {
+        const line = `wecom: account diagnosis ${issue.code} ${issue.message}`;
+        if (issue.severity === "warn") api.logger.warn?.(line);
+        else api.logger.info?.(line);
+      }
     }
 
     api.registerChannel({ plugin: wecomChannelPlugin });

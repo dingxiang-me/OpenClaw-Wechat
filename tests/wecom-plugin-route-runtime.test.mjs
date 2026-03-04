@@ -68,6 +68,7 @@ function createRegisterRuntimeDeps() {
     resolveWecomDynamicAgentPolicy: () => ({ enabled: false, mode: "mapping", userMap: {}, groupMap: {}, mentionMap: {} }),
     resolveWecomBotConfig: () => ({ enabled: false }),
     resolveWecomBotConfigs: () => [{ accountId: "default", enabled: false }],
+    listEnabledWecomAccounts: () => [],
     getWecomConfig: () => ({
       corpId: "ww1",
       corpSecret: "sec",

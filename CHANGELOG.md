@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- 新增多账号冲突诊断：启动时输出 `wecom: account diagnosis ...`（重复 callbackToken / bot token、共享路径等）
+- 新增场景化远端 E2E 脚本：`npm run wecom:e2e:scenario -- --scenario <bot-smoke|agent-smoke|full-smoke|bot-queue>`
+- 新增账号路径诊断单测与默认路径单测（Agent/Bot）
+
+### Changed
+- 多账号默认回调路径自动分配：
+  - Agent：非 default 账户缺省为 `/wecom/<accountId>/callback`
+  - Bot：非 default 账户缺省为 `/wecom/<accountId>/bot/callback`
+- `openclaw.plugin.json` 与 README（中英文）补充自动路径与账号体检说明
+
 ## [1.5.0] - 2026-03-04
 
 ### Added

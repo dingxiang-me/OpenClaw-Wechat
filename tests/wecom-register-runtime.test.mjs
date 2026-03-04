@@ -45,6 +45,7 @@ test("register logs startup and registers channel/routes", () => {
     resolveWecomDynamicAgentPolicy: () => ({ enabled: true, mode: "manual", userMap: { u1: "main" }, groupMap: {}, mentionMap: {} }),
     resolveWecomBotConfig: () => ({ enabled: false, webhookPath: "/wecom/bot/callback", streamExpireMs: 600000 }),
     resolveWecomBotConfigs: () => [{ accountId: "default", enabled: false }],
+    listEnabledWecomAccounts: () => [{ accountId: "default", enabled: true, corpId: "ww1", agentId: "1001", callbackToken: "t1" }],
     getWecomConfig: () => ({ corpId: "ww12345678", outboundProxy: "" }),
     wecomChannelPlugin: { id: "wecom" },
     wecomRouteRegistrar: {
@@ -86,6 +87,7 @@ test("register warns when no route available", () => {
     resolveWecomDynamicAgentPolicy: () => ({ enabled: false, mode: "manual", userMap: {}, groupMap: {}, mentionMap: {} }),
     resolveWecomBotConfig: () => ({ enabled: false, webhookPath: "/wecom/bot/callback", streamExpireMs: 600000 }),
     resolveWecomBotConfigs: () => [{ accountId: "default", enabled: false }],
+    listEnabledWecomAccounts: () => [],
     getWecomConfig: () => null,
     wecomChannelPlugin: { id: "wecom" },
     wecomRouteRegistrar: {
@@ -105,4 +107,40 @@ test("register warns when no route available", () => {
   });
 
   assert.ok(logs.warn.some((line) => line.includes("no enabled account with valid config")));
+});
+
+test("register emits account diagnosis warnings for duplicate credentials", () => {
+  const { logger, logs } = createLogger();
+  const runtime = createWecomRegisterRuntime({
+    setGatewayRuntime: () => {},
+    syncWecomSessionQueuePolicy: () => ({ enabled: true, timeoutMs: 9000, maxConcurrentPerSession: 1 }),
+    resolveWecomDeliveryFallbackPolicy: () => ({ enabled: false, order: ["active_stream"] }),
+    resolveWecomWebhookBotDeliveryPolicy: () => ({ enabled: false, url: "", key: "" }),
+    resolveWecomObservabilityPolicy: () => ({ enabled: false, logPayloadMeta: false }),
+    resolveWecomDynamicAgentPolicy: () => ({ enabled: false, mode: "manual", userMap: {}, groupMap: {}, mentionMap: {} }),
+    resolveWecomBotConfig: () => ({ enabled: false, webhookPath: "/wecom/bot/callback", streamExpireMs: 600000 }),
+    resolveWecomBotConfigs: () => [],
+    listEnabledWecomAccounts: () => [
+      { accountId: "default", enabled: true, corpId: "ww-a", agentId: "1001", callbackToken: "dup-token" },
+      { accountId: "sales", enabled: true, corpId: "ww-b", agentId: "1002", callbackToken: "dup-token" },
+    ],
+    getWecomConfig: () => ({ corpId: "ww-a", outboundProxy: "" }),
+    wecomChannelPlugin: { id: "wecom" },
+    wecomRouteRegistrar: {
+      registerWecomBotWebhookRoute() {
+        return false;
+      },
+      registerWecomAgentWebhookRoutes() {
+        return new Map([["/wecom/callback", [{ accountId: "default" }]]]);
+      },
+    },
+  });
+
+  runtime.register({
+    runtime: {},
+    logger,
+    registerChannel() {},
+  });
+
+  assert.ok(logs.warn.some((line) => line.includes("agent-duplicate-callback-token")));
 });

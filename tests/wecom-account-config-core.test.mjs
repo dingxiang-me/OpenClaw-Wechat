@@ -83,3 +83,32 @@ test("readAccountConfigFromEnv supports legacy scoped env vars", () => {
   assert.equal(normalized.callbackToken, "beta-legacy-token");
   assert.equal(normalized.callbackAesKey, "beta-legacy-aes");
 });
+
+test("normalizeAccountConfig auto-assigns non-default webhookPath when missing", () => {
+  const normalized = normalizeAccountConfig({
+    raw: {
+      corpId: "ww_sales",
+      corpSecret: "secret",
+      agentId: 1000008,
+    },
+    accountId: "sales",
+    normalizeWecomWebhookTargetMap,
+  });
+  assert.equal(normalized.webhookPath, "/wecom/sales/callback");
+});
+
+test("readAccountConfigFromEnv auto-assigns non-default webhookPath when missing", () => {
+  const processEnvStub = {
+    WECOM_SALES_CORP_ID: "ww_sales",
+    WECOM_SALES_CORP_SECRET: "sales-secret",
+    WECOM_SALES_AGENT_ID: "1000010",
+  };
+
+  const normalized = readAccountConfigFromEnv({
+    envVars: {},
+    accountId: "sales",
+    requireEnv: (name) => processEnvStub[name],
+    normalizeWecomWebhookTargetMap,
+  });
+  assert.equal(normalized.webhookPath, "/wecom/sales/callback");
+});
