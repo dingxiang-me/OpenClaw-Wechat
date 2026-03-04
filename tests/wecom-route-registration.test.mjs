@@ -61,8 +61,11 @@ test("registerWecomBotWebhookRoute registers bot callback", () => {
 
   const ok = registrar.registerWecomBotWebhookRoute(api);
   assert.equal(ok, true);
-  assert.equal(routes.length, 1);
-  assert.equal(routes[0].path, "/wecom/bot/callback");
+  assert.equal(routes.length, 2);
+  assert.deepEqual(
+    routes.map((item) => item.path).sort(),
+    ["/webhooks/wecom", "/wecom/bot/callback"],
+  );
 });
 
 test("registerWecomAgentWebhookRoutes registers grouped routes", () => {
@@ -123,9 +126,29 @@ test("registerWecomBotWebhookRoute groups multiple accounts by webhook path", ()
 
   const ok = registrar.registerWecomBotWebhookRoute(api);
   assert.equal(ok, true);
-  assert.equal(routes.length, 2);
+  assert.equal(routes.length, 4);
   assert.deepEqual(
     routes.map((item) => item.path).sort(),
-    ["/wecom/bot/callback", "/wecom/ops/bot/callback"],
+    ["/webhooks/wecom", "/webhooks/wecom/ops", "/wecom/bot/callback", "/wecom/ops/bot/callback"],
+  );
+});
+
+test("registerWecomBotWebhookRoute skips legacy alias when agent path conflicts", () => {
+  const routes = [];
+  const registrar = createRegistrar({
+    groupAccountsByWebhookPath: () => new Map([["/webhooks/wecom", [{ accountId: "default" }]]]),
+  });
+  const api = {
+    logger: { info() {}, warn() {}, error() {} },
+    registerHttpRoute(route) {
+      routes.push(route);
+    },
+  };
+
+  const ok = registrar.registerWecomBotWebhookRoute(api);
+  assert.equal(ok, true);
+  assert.deepEqual(
+    routes.map((item) => item.path).sort(),
+    ["/wecom/bot/callback"],
   );
 });

@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - 改进命令策略：当配置了 `commands.allowlist`（或 `commandAllowlist`）且未显式关闭时，自动启用命令白名单
 - 修复账户级 `dm.allowFrom` 兼容：`accounts.<id>.dm.allowFrom` 在归一化后保持生效
 - 调整 manifest：`accounts.<id>` 不再强制 `corpId/corpSecret/agentId`，支持 Bot-only 账号配置
+- 新增 Bot 路由兼容：默认新路径会自动注册 legacy alias（`/webhooks/wecom` / `/webhooks/wecom/<id>`），并在与 Agent 路径冲突时自动跳过
 
 ### Changed
 - 多账号默认回调路径自动分配：

@@ -24,3 +24,9 @@ export function buildDefaultBotWebhookPath(accountId) {
   return `/wecom/${slug}/bot/callback`;
 }
 
+export function buildLegacyBotWebhookPath(accountId) {
+  const normalizedId = normalizeAccountId(accountId);
+  if (normalizedId === "default") return "/webhooks/wecom";
+  const slug = buildWebhookPathAccountSlug(normalizedId);
+  return `/webhooks/wecom/${slug}`;
+}

@@ -1,3 +1,5 @@
+import { buildDefaultBotWebhookPath, buildLegacyBotWebhookPath } from "./account-paths.js";
+
 export function createWecomRouteRegistrar({
   resolveWecomBotConfig,
   resolveWecomBotConfigs,
@@ -66,13 +68,45 @@ export function createWecomRouteRegistrar({
     }
 
     const grouped = new Map();
+    const agentWebhookGroups = groupAccountsByWebhookPath(api);
+    const agentPathSet = new Set(
+      Array.from(agentWebhookGroups.keys()).map(
+        (path) => normalizePluginHttpPath(path ?? "/wecom/callback", "/wecom/callback") ?? "/wecom/callback",
+      ),
+    );
     for (const botConfig of signedBotConfigs) {
+      const normalizedAccountId = String(botConfig?.accountId ?? "default").trim().toLowerCase() || "default";
       const normalizedPath =
         normalizePluginHttpPath(botConfig.webhookPath ?? "/wecom/bot/callback", "/wecom/bot/callback") ??
         "/wecom/bot/callback";
-      const existing = grouped.get(normalizedPath);
-      if (existing) existing.push(botConfig);
-      else grouped.set(normalizedPath, [botConfig]);
+      const registerGroupedPath = (candidatePath) => {
+        const existing = grouped.get(candidatePath);
+        if (existing) existing.push(botConfig);
+        else grouped.set(candidatePath, [botConfig]);
+      };
+      registerGroupedPath(normalizedPath);
+
+      const normalizedDefaultPath = normalizePluginHttpPath(
+        buildDefaultBotWebhookPath(normalizedAccountId),
+        "/wecom/bot/callback",
+      );
+      if (normalizedDefaultPath && normalizedPath === normalizedDefaultPath) {
+        const legacyAliasPath =
+          normalizePluginHttpPath(buildLegacyBotWebhookPath(normalizedAccountId), "/webhooks/wecom") ??
+          "/webhooks/wecom";
+        if (legacyAliasPath !== normalizedPath) {
+          if (agentPathSet.has(legacyAliasPath)) {
+            api.logger.warn?.(
+              `wecom(bot): skip legacy alias ${legacyAliasPath} for account=${normalizedAccountId} (conflicts with agent webhook path)`,
+            );
+          } else {
+            registerGroupedPath(legacyAliasPath);
+            api.logger.info?.(
+              `wecom(bot): registered legacy alias ${legacyAliasPath} for account=${normalizedAccountId}`,
+            );
+          }
+        }
+      }
     }
 
     let registeredCount = 0;
