@@ -320,7 +320,7 @@ npm run wecom:bot:selfcheck
 | Command | Purpose |
 |---|---|
 | `npm test` | syntax + tests |
-| `WECOM_E2E_ENABLE=1 npm run test:e2e:remote` | run remote E2E tests (skipped by default; requires `WECOM_E2E_BOT_URL`/`WECOM_E2E_AGENT_URL`) |
+| `WECOM_E2E_ENABLE=1 npm run test:e2e:remote` | run remote E2E tests (skipped by default; supports both `WECOM_E2E_*` and legacy `E2E_WECOM_*` env sets) |
 | `npm run wecom:selfcheck -- --all-accounts` | config/network self-check |
 | `npm run wecom:agent:selfcheck -- --account <id>` | Agent E2E self-check (URL verify + encrypted POST) |
 | `npm run wecom:bot:selfcheck` | Bot E2E self-check (signature/encryption/stream-refresh) |

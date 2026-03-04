@@ -538,7 +538,7 @@ npm run wecom:bot:selfcheck
 | 命令 | 作用 |
 |---|---|
 | `npm test` | 语法与单测 |
-| `WECOM_E2E_ENABLE=1 npm run test:e2e:remote` | 运行远程 E2E 测试（默认跳过，需配 `WECOM_E2E_BOT_URL`/`WECOM_E2E_AGENT_URL`） |
+| `WECOM_E2E_ENABLE=1 npm run test:e2e:remote` | 运行远程 E2E 测试（默认跳过；支持 `WECOM_E2E_*` 与兼容 `E2E_WECOM_*` 两套变量） |
 | `npm run wecom:selfcheck -- --all-accounts` | 配置+网络体检 |
 | `npm run wecom:agent:selfcheck -- --account <id>` | Agent 端到端链路体检（URL 验证 + 加密 POST） |
 | `npm run wecom:bot:selfcheck` | Bot 端到端链路体检（签名/加密/stream-refresh） |

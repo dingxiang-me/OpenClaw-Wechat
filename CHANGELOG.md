@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - 调整 manifest：`accounts.<id>` 不再强制 `corpId/corpSecret/agentId`，支持 Bot-only 账号配置
 - 新增 Bot 路由兼容：默认新路径会自动注册 legacy alias（`/webhooks/wecom` / `/webhooks/wecom/<id>`），并在与 Agent 路径冲突时自动跳过
 - 新增 Agent 路由兼容：默认新路径会自动注册 legacy alias（`/webhooks/app` / `/webhooks/app/<id>`），并在与 Bot 路径冲突时自动跳过
+- 新增 Agent 自检增强：`wecom:agent:selfcheck` 在默认新路径场景下会额外探测 legacy alias（`/webhooks/app`）
 
 ### Changed
 - 多账号默认回调路径自动分配：
@@ -27,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - `openclaw.plugin.json` 与 README（中英文）补充自动路径与账号体检说明
 - Bot 配置解析增强：在 legacy `agent` 配置块存在时，自动将顶层 `token/encodingAesKey/webhookPath` 识别为 Bot 配置
 - 动态路由增强：支持私聊/群聊维度开关（`dmCreateAgentOnFirstMessage`、`groupEnabled`）
+- 远端 E2E 兼容增强：`test:e2e:remote` 支持 `WECOM_E2E_*` 与 legacy `E2E_WECOM_*` 两套环境变量
 
 ## [1.5.0] - 2026-03-04
 
