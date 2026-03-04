@@ -46,6 +46,18 @@ All notable changes to this project will be documented in this file.
 - 远端 E2E 兼容增强：`test:e2e:remote` 支持 `WECOM_E2E_*` 与 legacy `E2E_WECOM_*` 两套环境变量
 - 语法检查范围增强：`test:syntax` 从仅 `src` 扩展到 `src + scripts + tests`，降低脚本/测试回归漏检风险
 
+## [1.6.1] - 2026-03-04
+
+### Added
+- Bot 可见性诊断补齐：`/status` 与 `wecom:bot:selfcheck` 新增“微信插件入口联系人”提示，避免将产品形态差异误判为故障
+- Bot 体检支持账户维度：`npm run wecom:bot:selfcheck -- --account <id>` 与 `--all-accounts`
+- Bot 体检新增插件加载诊断：`plugins.enabled / plugins.entry.openclaw-wechat / plugins.allow`
+- 新增脚本级回归测试：覆盖 Bot 体检多账户发现与参数冲突（`--all-accounts` + `--url`）
+
+### Changed
+- 命令兼容增强：`/new` 与 `/clear` 在 Agent/Bot 双模式统一映射到 `/reset`，并兼容白名单
+- 插件安装元数据完善：`package.json` 增加 `openclaw.install`（`defaultChoice=npm` + `npmSpec=@dingxiang-me/openclaw-wechat`）
+
 ## [1.5.0] - 2026-03-04
 
 ### Added
