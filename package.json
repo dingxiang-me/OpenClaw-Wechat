@@ -37,7 +37,7 @@
   },
   "scripts": {
     "lint": "npm run test:syntax",
-    "test:syntax": "find src -name '*.js' -print0 | xargs -0 -n1 node -c",
+    "test:syntax": "find src scripts tests -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node -c",
     "test": "npm run test:syntax && node --test tests/*.test.mjs",
     "test:e2e": "node --test tests/e2e/*.test.mjs",
     "test:e2e:remote": "node --test tests/e2e/*.test.mjs",

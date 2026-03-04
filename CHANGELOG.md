@@ -33,6 +33,7 @@ All notable changes to this project will be documented in this file.
 - Bot 配置解析增强：在 legacy `agent` 配置块存在时，自动将顶层 `token/encodingAesKey/webhookPath` 识别为 Bot 配置
 - 动态路由增强：支持私聊/群聊维度开关（`dmCreateAgentOnFirstMessage`、`groupEnabled`）
 - 远端 E2E 兼容增强：`test:e2e:remote` 支持 `WECOM_E2E_*` 与 legacy `E2E_WECOM_*` 两套环境变量
+- 语法检查范围增强：`test:syntax` 从仅 `src` 扩展到 `src + scripts + tests`，降低脚本/测试回归漏检风险
 
 ## [1.5.0] - 2026-03-04
 
