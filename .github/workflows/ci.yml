@@ -11,6 +11,36 @@ on:
         description: "Run remote WeCom e2e checks"
         type: boolean
         default: false
+      e2e_scenario:
+        description: "Remote E2E scenario"
+        type: choice
+        default: full-smoke
+        options:
+          - full-smoke
+          - compat-smoke
+          - bot-smoke
+          - agent-smoke
+          - bot-queue
+      e2e_prepare_browser:
+        description: "Run browser sandbox prepare before remote E2E"
+        type: boolean
+        default: false
+      e2e_collect_pdf:
+        description: "Collect browser PDF artifacts after remote E2E"
+        type: boolean
+        default: false
+      e2e_browser_prepare_mode:
+        description: "Browser prepare mode"
+        type: choice
+        default: check
+        options:
+          - check
+          - install
+          - off
+      e2e_browser_require_ready:
+        description: "Fail when browser sandbox is not ready"
+        type: boolean
+        default: false
 
 jobs:
   unit-test:
@@ -46,6 +76,8 @@ jobs:
       WECOM_E2E_TIMEOUT_MS: "20000"
       WECOM_E2E_POLL_COUNT: "25"
       WECOM_E2E_POLL_INTERVAL_MS: "1200"
+      WECOM_E2E_BOT_LEGACY_URL: ${{ secrets.WECOM_E2E_BOT_LEGACY_URL }}
+      WECOM_E2E_AGENT_LEGACY_URL: ${{ secrets.WECOM_E2E_AGENT_LEGACY_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,5 +98,41 @@ jobs:
             exit 1
           fi
 
-      - name: Run remote e2e
-        run: npm run test:e2e:remote
+      - name: Run scenario driver
+        env:
+          E2E_SCENARIO: ${{ inputs.e2e_scenario }}
+          E2E_PREPARE_BROWSER: ${{ inputs.e2e_prepare_browser }}
+          E2E_COLLECT_PDF: ${{ inputs.e2e_collect_pdf }}
+          E2E_BROWSER_PREPARE_MODE: ${{ inputs.e2e_browser_prepare_mode }}
+          E2E_BROWSER_REQUIRE_READY: ${{ inputs.e2e_browser_require_ready }}
+        run: |
+          set -euo pipefail
+
+          ARGS=(--scenario "$E2E_SCENARIO")
+          if [ -n "${WECOM_E2E_BOT_URL:-}" ]; then
+            ARGS+=(--bot-url "$WECOM_E2E_BOT_URL")
+          fi
+          if [ -n "${WECOM_E2E_AGENT_URL:-}" ]; then
+            ARGS+=(--agent-url "$WECOM_E2E_AGENT_URL")
+          fi
+          if [ -n "${WECOM_E2E_BOT_LEGACY_URL:-}" ]; then
+            ARGS+=(--bot-legacy-url "$WECOM_E2E_BOT_LEGACY_URL")
+          fi
+          if [ -n "${WECOM_E2E_AGENT_LEGACY_URL:-}" ]; then
+            ARGS+=(--agent-legacy-url "$WECOM_E2E_AGENT_LEGACY_URL")
+          fi
+          if [ "${E2E_PREPARE_BROWSER}" = "true" ]; then
+            ARGS+=(--prepare-browser)
+          fi
+          if [ "${E2E_COLLECT_PDF}" = "true" ]; then
+            ARGS+=(--collect-pdf)
+          fi
+          if [ -n "${E2E_BROWSER_PREPARE_MODE}" ]; then
+            ARGS+=(--browser-prepare-mode "$E2E_BROWSER_PREPARE_MODE")
+          fi
+          if [ "${E2E_BROWSER_REQUIRE_READY}" = "true" ]; then
+            ARGS+=(--browser-require-ready)
+          fi
+
+          echo "Running scenario: ${ARGS[*]}"
+          npm run wecom:e2e:scenario -- "${ARGS[@]}"

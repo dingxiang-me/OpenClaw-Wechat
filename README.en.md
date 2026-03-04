@@ -332,7 +332,7 @@ npm run wecom:bot:selfcheck
 | `npm run wecom:e2e:scenario -- --scenario full-smoke --agent-url <public-agent-callback> --bot-url <public-bot-callback>` | scenario-based E2E (preset smoke/queue workflows) |
 | `npm run wecom:e2e:scenario -- --scenario compat-smoke --agent-url <new-agent-url> --agent-legacy-url <legacy-agent-url> --bot-url <new-bot-url> --bot-legacy-url <legacy-bot-url>` | compatibility matrix run across new + legacy webhook endpoints |
 | `npm run wecom:e2e:full -- --agent-url <public-agent-callback> --bot-url <public-bot-callback>` | one-shot full-smoke (pre-enabled `--prepare-browser --collect-pdf`) |
-| `GitHub Actions -> CI -> Run workflow (run_remote_e2e=true)` | trigger remote E2E in CI (uses `WECOM_E2E_*` secrets) |
+| `GitHub Actions -> CI -> Run workflow` | trigger remote E2E in CI with `run_remote_e2e=true`; optionally pick `e2e_scenario` (including `compat-smoke`) and browser options |
 | `npm run wecom:smoke` | smoke test after upgrades (Agent path) |
 | `npm run wecom:smoke -- --with-bot-e2e` | smoke test after upgrades (with Bot E2E) |
 | `openclaw gateway restart` | restart runtime |

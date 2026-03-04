@@ -550,7 +550,7 @@ npm run wecom:bot:selfcheck
 | `npm run wecom:e2e:scenario -- --scenario full-smoke --agent-url <公网Agent回调> --bot-url <公网Bot回调>` | 场景化 E2E（预置 smoke/queue 场景） |
 | `npm run wecom:e2e:scenario -- --scenario compat-smoke --agent-url <新Agent回调> --agent-legacy-url <旧Agent回调> --bot-url <新Bot回调> --bot-legacy-url <旧Bot回调>` | 兼容矩阵验证（新旧回调地址都跑一遍） |
 | `npm run wecom:e2e:full -- --agent-url <公网Agent回调> --bot-url <公网Bot回调>` | 一键 full-smoke（默认带 `--prepare-browser --collect-pdf`） |
-| `GitHub Actions -> CI -> Run workflow (run_remote_e2e=true)` | 在仓库 CI 手动触发远程 E2E（使用 `WECOM_E2E_*` secrets） |
+| `GitHub Actions -> CI -> Run workflow` | 在仓库 CI 手动触发远程 E2E：设置 `run_remote_e2e=true`，可选 `e2e_scenario`（含 `compat-smoke`）与浏览器参数 |
 | `npm run wecom:smoke` | 升级后快速回归（Agent 主链路） |
 | `npm run wecom:smoke -- --with-bot-e2e` | 升级后快速回归（含 Bot E2E） |
 | `openclaw gateway restart` | 重启网关 |
