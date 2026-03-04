@@ -4,8 +4,13 @@ export function requireEnv(name, fallback, processEnv = process.env) {
   return value;
 }
 
-export function buildWecomBotSessionId(userId) {
-  return `wecom-bot:${String(userId ?? "").trim().toLowerCase()}`;
+export function buildWecomBotSessionId(userId, accountId = "default") {
+  const normalizedUserId = String(userId ?? "").trim().toLowerCase();
+  const normalizedAccountId = String(accountId ?? "default").trim().toLowerCase() || "default";
+  if (normalizedAccountId === "default") {
+    return `wecom-bot:${normalizedUserId}`;
+  }
+  return `wecom-bot:${normalizedAccountId}:${normalizedUserId}`;
 }
 
 export function asNumber(value, fallback = null) {

@@ -286,3 +286,42 @@ test("deliverBotReplyText consumes queued stream media when final payload has no
   assert.equal(deliverer.finishedStreams[0].content, "使用队列媒体");
   assert.equal(deliverer.finishedStreams[0].options?.msgItem?.length, 1);
 });
+
+test("deliverBotReplyText packs local workspace image into active_stream msg_item", async () => {
+  const fetched = [];
+  const deliverer = createDeliverer({
+    hasBotStream: (streamId) => streamId === "stream-ok",
+    extractWorkspacePathsFromText: () => ["/workspace/output/chart.png"],
+    resolveWorkspacePathToHost: ({ workspacePath, agentId }) =>
+      workspacePath === "/workspace/output/chart.png" && agentId === "agent-sales"
+        ? "/tmp/openclaw/agent-sales/chart.png"
+        : "",
+    statImpl: async (path) => ({
+      isFile: () => path === "/tmp/openclaw/agent-sales/chart.png",
+    }),
+    fetchMediaFromUrl: async (mediaUrl) => {
+      fetched.push(mediaUrl);
+      return {
+        buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+        contentType: "image/png",
+      };
+    },
+  });
+
+  const result = await deliverer.deliverBotReplyText({
+    api: createApiMock(),
+    fromUser: "dingxiang",
+    accountId: "sales",
+    sessionId: "wecom-bot:sales:dingxiang",
+    streamId: "stream-ok",
+    routeAgentId: "agent-sales",
+    text: "请查看图表：/workspace/output/chart.png",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.layer, "active_stream");
+  assert.deepEqual(fetched, ["/tmp/openclaw/agent-sales/chart.png"]);
+  assert.equal(deliverer.finishedStreams.length, 1);
+  assert.equal(deliverer.finishedStreams[0].options?.msgItem?.length, 1);
+  assert.equal(deliverer.finishedStreams[0].options?.msgItem?.[0]?.msgtype, "image");
+});

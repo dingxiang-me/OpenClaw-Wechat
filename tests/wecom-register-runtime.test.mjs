@@ -44,6 +44,7 @@ test("register logs startup and registers channel/routes", () => {
     resolveWecomObservabilityPolicy: () => ({ enabled: true, logPayloadMeta: true }),
     resolveWecomDynamicAgentPolicy: () => ({ enabled: true, mode: "manual", userMap: { u1: "main" }, groupMap: {}, mentionMap: {} }),
     resolveWecomBotConfig: () => ({ enabled: false, webhookPath: "/wecom/bot/callback", streamExpireMs: 600000 }),
+    resolveWecomBotConfigs: () => [{ accountId: "default", enabled: false }],
     getWecomConfig: () => ({ corpId: "ww12345678", outboundProxy: "" }),
     wecomChannelPlugin: { id: "wecom" },
     wecomRouteRegistrar: {
@@ -84,6 +85,7 @@ test("register warns when no route available", () => {
     resolveWecomObservabilityPolicy: () => ({ enabled: false, logPayloadMeta: false }),
     resolveWecomDynamicAgentPolicy: () => ({ enabled: false, mode: "manual", userMap: {}, groupMap: {}, mentionMap: {} }),
     resolveWecomBotConfig: () => ({ enabled: false, webhookPath: "/wecom/bot/callback", streamExpireMs: 600000 }),
+    resolveWecomBotConfigs: () => [{ accountId: "default", enabled: false }],
     getWecomConfig: () => null,
     wecomChannelPlugin: { id: "wecom" },
     wecomRouteRegistrar: {

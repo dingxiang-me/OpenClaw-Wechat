@@ -6,6 +6,7 @@ export function createWecomRegisterRuntime({
   resolveWecomObservabilityPolicy,
   resolveWecomDynamicAgentPolicy,
   resolveWecomBotConfig,
+  resolveWecomBotConfigs,
   getWecomConfig,
   wecomChannelPlugin,
   wecomRouteRegistrar,
@@ -31,6 +32,9 @@ export function createWecomRegisterRuntime({
   if (typeof resolveWecomBotConfig !== "function") {
     throw new Error("createWecomRegisterRuntime: resolveWecomBotConfig is required");
   }
+  if (resolveWecomBotConfigs != null && typeof resolveWecomBotConfigs !== "function") {
+    throw new Error("createWecomRegisterRuntime: resolveWecomBotConfigs must be a function");
+  }
   if (typeof getWecomConfig !== "function") {
     throw new Error("createWecomRegisterRuntime: getWecomConfig is required");
   }
@@ -50,14 +54,22 @@ export function createWecomRegisterRuntime({
     const dynamicAgentPolicy = resolveWecomDynamicAgentPolicy(api);
 
     const botModeConfig = resolveWecomBotConfig(api);
+    const botModeConfigs =
+      typeof resolveWecomBotConfigs === "function"
+        ? resolveWecomBotConfigs(api)
+        : [botModeConfig];
+    const enabledBotConfigs = (Array.isArray(botModeConfigs) ? botModeConfigs : []).filter((item) => item?.enabled === true);
     const cfg = getWecomConfig(api);
     if (cfg) {
       api.logger.info?.(
         `wecom: config loaded (corpId=${cfg.corpId?.slice(0, 8)}..., proxy=${cfg.outboundProxy ? "on" : "off"})`,
       );
-    } else if (botModeConfig.enabled) {
+    } else if (enabledBotConfigs.length > 0) {
+      const webhookSummary = Array.from(
+        new Set(enabledBotConfigs.map((item) => String(item?.webhookPath || "/wecom/bot/callback"))),
+      ).join(", ");
       api.logger.info?.(
-        `wecom(bot): config loaded (webhook=${botModeConfig.webhookPath}, streamExpireMs=${botModeConfig.streamExpireMs})`,
+        `wecom(bot): config loaded (accounts=${enabledBotConfigs.length}, webhook=${webhookSummary}, streamExpireMs=${botModeConfig.streamExpireMs})`,
       );
     } else {
       api.logger.warn?.("wecom: no configuration found (check channels.wecom in openclaw.json)");

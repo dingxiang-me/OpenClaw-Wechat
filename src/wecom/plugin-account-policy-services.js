@@ -12,6 +12,7 @@ import {
   pickAudioFileExtension,
   resolveVoiceTranscriptionConfig,
   resolveWecomAllowFromPolicyConfig,
+  resolveWecomBotModeAccountsConfig,
   resolveWecomBotModeConfig,
   resolveWecomCommandPolicyConfig,
   resolveWecomDebounceConfig,
@@ -66,6 +67,7 @@ export function createWecomPluginAccountPolicyServices({
   });
 
   const {
+    resolveWecomBotConfigs,
     resolveWecomBotConfig,
     resolveWecomBotProxyConfig,
     resolveWecomCommandPolicy,
@@ -82,6 +84,7 @@ export function createWecomPluginAccountPolicyServices({
     getGatewayRuntime,
     normalizeAccountId,
     resolveWecomBotModeConfig,
+    resolveWecomBotModeAccountsConfig,
     resolveWecomProxyConfig,
     resolveWecomCommandPolicyConfig,
     resolveWecomAllowFromPolicyConfig,
@@ -134,6 +137,7 @@ export function createWecomPluginAccountPolicyServices({
     groupAccountsByWebhookPath,
     WecomChannelPlugin,
     resolveWecomBotConfig,
+    resolveWecomBotConfigs,
     resolveWecomBotProxyConfig,
     resolveWecomCommandPolicy,
     resolveWecomAllowFromPolicy,

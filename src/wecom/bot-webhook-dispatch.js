@@ -52,7 +52,6 @@ function buildEncryptedStreamPayload({
 
 export function createWecomBotParsedDispatcher({
   api,
-  botConfig,
   cleanupExpiredBotStreams,
   getBotStream,
   buildWecomBotEncryptedResponse,
@@ -83,20 +82,29 @@ export function createWecomBotParsedDispatcher({
   assertFunction("finishBotStream", finishBotStream);
   assertFunction("randomUuid", randomUuid);
 
-  function buildStreamId() {
+  function buildStreamId(accountId = "default") {
     const normalized = String(randomUuid() || "").trim();
+    const accountSlug = String(accountId ?? "default")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "_") || "default";
     if (normalized) return `stream_${normalized}`;
-    return `stream_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    return `stream_${accountSlug}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   }
 
   function respondStreamRefresh({ parsed, res, timestamp, nonce }) {
-    cleanupExpiredBotStreams(botConfig.streamExpireMs);
+    const activeBotConfig = parsed?._botConfig;
+    if (!activeBotConfig?.token || !activeBotConfig?.encodingAesKey) {
+      sendPlainText(res, 401, "Invalid bot account config");
+      return;
+    }
+    cleanupExpiredBotStreams(activeBotConfig.streamExpireMs);
     const streamId = parsed.streamId || `stream-${Date.now()}`;
     const stream = getBotStream(streamId);
     const feedbackId = String(parsed.feedbackId || stream?.feedbackId || "").trim();
     const encryptedResponse = buildEncryptedStreamPayload({
       buildWecomBotEncryptedResponse,
-      botConfig,
+      botConfig: activeBotConfig,
       timestamp,
       nonce,
       streamId,
@@ -130,6 +138,10 @@ export function createWecomBotParsedDispatcher({
               fileName: parsed.fileName,
               quote: parsed.quote,
               responseUrl: parsed.responseUrl,
+              accountId: parsed.accountId,
+              voiceUrl: parsed.voiceUrl,
+              voiceMediaId: parsed.voiceMediaId,
+              voiceContentType: parsed.voiceContentType,
             }),
         }),
       )
@@ -141,6 +153,7 @@ export function createWecomBotParsedDispatcher({
           sessionId: botSessionId,
           streamId,
           responseUrl: parsed.responseUrl,
+          accountId: parsed.accountId,
           text: `抱歉，当前模型请求失败，请稍后重试。\n故障信息: ${String(err?.message || err).slice(0, 160)}`,
           reason: "bot-async-processing-error",
         }).catch((deliveryErr) => {
@@ -154,6 +167,12 @@ export function createWecomBotParsedDispatcher({
   }
 
   function respondMessage({ parsed, res, timestamp, nonce }) {
+    const activeBotConfig = parsed?._botConfig;
+    if (!activeBotConfig?.token || !activeBotConfig?.encodingAesKey) {
+      sendPlainText(res, 401, "Invalid bot account config");
+      return;
+    }
+    const accountId = String(parsed?.accountId ?? "default").trim().toLowerCase() || "default";
     const dedupeStub = {
       MsgId: parsed.msgId,
       FromUserName: parsed.fromUser,
@@ -161,17 +180,18 @@ export function createWecomBotParsedDispatcher({
       Content: parsed.content,
       CreateTime: String(Math.floor(Date.now() / 1000)),
     };
-    if (!markInboundMessageSeen(dedupeStub, "bot")) {
+    if (!markInboundMessageSeen(dedupeStub, `bot:${accountId}`)) {
       sendPlainText(res, 200, "success");
       return;
     }
 
-    const botSessionId = buildWecomBotSessionId(parsed.fromUser);
-    const streamId = buildStreamId();
+    const botSessionId = buildWecomBotSessionId(parsed.fromUser, accountId);
+    const streamId = buildStreamId(accountId);
     const feedbackId = String(parsed.feedbackId ?? "").trim();
-    createBotStream(streamId, botConfig.placeholderText, {
+    createBotStream(streamId, activeBotConfig.placeholderText, {
       feedbackId,
       sessionId: botSessionId,
+      accountId,
     });
     if (parsed.responseUrl) {
       upsertBotResponseUrlCache({
@@ -181,11 +201,11 @@ export function createWecomBotParsedDispatcher({
     }
     const encryptedResponse = buildEncryptedStreamPayload({
       buildWecomBotEncryptedResponse,
-      botConfig,
+      botConfig: activeBotConfig,
       timestamp,
       nonce,
       streamId,
-      content: botConfig.placeholderText,
+      content: activeBotConfig.placeholderText,
       finish: false,
       feedbackId,
     });
@@ -197,11 +217,12 @@ export function createWecomBotParsedDispatcher({
     });
   }
 
-  return async function dispatchParsed({ parsed, res, timestamp, nonce } = {}) {
+  return async function dispatchParsed({ parsed, res, timestamp, nonce, botConfig } = {}) {
     if (!parsed || typeof parsed !== "object") {
       sendPlainText(res, 200, "success");
       return true;
     }
+    parsed._botConfig = botConfig;
     if (parsed.kind === "stream-refresh") {
       respondStreamRefresh({ parsed, res, timestamp, nonce });
       return true;

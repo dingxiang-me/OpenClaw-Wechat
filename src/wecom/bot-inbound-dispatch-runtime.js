@@ -18,6 +18,7 @@ export async function executeWecomBotDispatchRuntime({
   cfg,
   ctxPayload,
   streamId,
+  accountId = "default",
   sessionId,
   routedAgentId,
   storePath,
@@ -96,7 +97,7 @@ export async function executeWecomBotDispatchRuntime({
             ? {
                 sessionKey: sessionId,
                 agentId: routedAgentId,
-                accountId: "bot",
+                accountId,
               }
             : undefined,
       },

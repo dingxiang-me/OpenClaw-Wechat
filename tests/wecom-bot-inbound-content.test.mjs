@@ -11,6 +11,8 @@ function createBuilder(overrides = {}) {
     detectImageContentTypeFromBuffer: () => "image/png",
     decryptWecomMediaBuffer: ({ encryptedBuffer }) => encryptedBuffer,
     pickImageFileExtension: () => ".png",
+    resolveWecomVoiceTranscriptionConfig: () => ({ enabled: false, maxBytes: 10 * 1024 * 1024 }),
+    transcribeInboundVoice: async () => "voice text",
     inferFilenameFromMediaDownload: ({ explicitName }) => explicitName || "file.bin",
     smartDecryptWecomFileBuffer: ({ buffer }) => ({ buffer, decrypted: false }),
     basename: (name) => String(name ?? "").split("/").pop(),
@@ -80,4 +82,58 @@ test("buildBotInboundContent returns file fallback text when file download fails
   });
   assert.equal(result.aborted, false);
   assert.match(result.messageText, /下载失败/);
+});
+
+test("buildBotInboundContent transcribes voice from downloadable voice url", async () => {
+  const calls = [];
+  const build = createBuilder({
+    fetchMediaFromUrl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        buffer: Buffer.from("voice-bytes"),
+        contentType: "audio/amr",
+      };
+    },
+    resolveWecomVoiceTranscriptionConfig: () => ({
+      enabled: true,
+      maxBytes: 4 * 1024 * 1024,
+    }),
+    transcribeInboundVoice: async ({ mediaId, contentType }) => `voice:${mediaId}:${contentType}`,
+  });
+  const result = await build({
+    api: { logger: {} },
+    msgType: "voice",
+    normalizedVoiceUrl: "https://example.com/voice.amr",
+    normalizedVoiceMediaId: "voice-1",
+    normalizedVoiceContentType: "audio/amr",
+  });
+  assert.equal(result.aborted, false);
+  assert.match(result.messageText, /\[用户发送了一条语音\]/);
+  assert.match(result.messageText, /voice:voice-1:audio\/amr/);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://example.com/voice.amr");
+});
+
+test("buildBotInboundContent aborts when voice transcription fails", async () => {
+  const build = createBuilder({
+    fetchMediaFromUrl: async () => ({
+      buffer: Buffer.from("voice-bytes"),
+      contentType: "audio/amr",
+    }),
+    resolveWecomVoiceTranscriptionConfig: () => ({
+      enabled: true,
+      maxBytes: 4 * 1024 * 1024,
+    }),
+    transcribeInboundVoice: async () => {
+      throw new Error("stt failed");
+    },
+  });
+  const result = await build({
+    api: { logger: { warn() {} } },
+    msgType: "voice",
+    normalizedVoiceUrl: "https://example.com/voice.amr",
+    normalizedVoiceMediaId: "voice-2",
+  });
+  assert.equal(result.aborted, true);
+  assert.match(result.abortText, /语音识别失败/);
 });

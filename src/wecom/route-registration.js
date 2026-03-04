@@ -1,5 +1,6 @@
 export function createWecomRouteRegistrar({
   resolveWecomBotConfig,
+  resolveWecomBotConfigs,
   normalizePluginHttpPath,
   ensureBotStreamCleanupTimer,
   cleanupExpiredBotStreams,
@@ -31,6 +32,9 @@ export function createWecomRouteRegistrar({
   groupAccountsByWebhookPath,
 } = {}) {
   if (typeof resolveWecomBotConfig !== "function") throw new Error("createWecomRouteRegistrar: resolveWecomBotConfig is required");
+  if (typeof resolveWecomBotConfigs !== "function") {
+    throw new Error("createWecomRouteRegistrar: resolveWecomBotConfigs is required");
+  }
   if (typeof normalizePluginHttpPath !== "function") {
     throw new Error("createWecomRouteRegistrar: normalizePluginHttpPath is required");
   }
@@ -51,51 +55,70 @@ export function createWecomRouteRegistrar({
   }
 
   function registerWecomBotWebhookRoute(api) {
-    const botConfig = resolveWecomBotConfig(api);
-    if (!botConfig.enabled) return false;
-    if (!botConfig.token || !botConfig.encodingAesKey) {
+    const botConfigs = resolveWecomBotConfigs(api);
+    const enabledBotConfigs = (Array.isArray(botConfigs) ? botConfigs : []).filter((item) => item?.enabled === true);
+    if (enabledBotConfigs.length === 0) return false;
+
+    const signedBotConfigs = enabledBotConfigs.filter((item) => item?.token && item?.encodingAesKey);
+    if (signedBotConfigs.length === 0) {
       api.logger.warn?.("wecom(bot): enabled but missing token/encodingAesKey; route not registered");
       return false;
     }
 
-    const normalizedPath =
-      normalizePluginHttpPath(botConfig.webhookPath ?? "/wecom/bot/callback", "/wecom/bot/callback") ??
-      "/wecom/bot/callback";
-    ensureBotStreamCleanupTimer(botConfig.streamExpireMs, api.logger);
-    cleanupExpiredBotStreams(botConfig.streamExpireMs);
+    const grouped = new Map();
+    for (const botConfig of signedBotConfigs) {
+      const normalizedPath =
+        normalizePluginHttpPath(botConfig.webhookPath ?? "/wecom/bot/callback", "/wecom/bot/callback") ??
+        "/wecom/bot/callback";
+      const existing = grouped.get(normalizedPath);
+      if (existing) existing.push(botConfig);
+      else grouped.set(normalizedPath, [botConfig]);
+    }
 
-    const handler = createWecomBotWebhookHandler({
-      api,
-      botConfig,
-      normalizedPath,
-      readRequestBody,
-      parseIncomingJson,
-      computeMsgSignature,
-      decryptWecom,
-      parseWecomBotInboundMessage,
-      describeWecomBotParsedMessage,
-      cleanupExpiredBotStreams,
-      getBotStream,
-      buildWecomBotEncryptedResponse,
-      markInboundMessageSeen,
-      buildWecomBotSessionId,
-      createBotStream,
-      upsertBotResponseUrlCache,
-      messageProcessLimiter,
-      executeInboundTaskWithSessionQueue,
-      processBotInboundMessage,
-      deliverBotReplyText,
-      finishBotStream,
-    });
+    let registeredCount = 0;
+    for (const [normalizedPath, pathConfigs] of grouped.entries()) {
+      const maxStreamExpireMs = pathConfigs.reduce(
+        (acc, item) => Math.max(acc, Number(item?.streamExpireMs) || 0),
+        0,
+      );
+      ensureBotStreamCleanupTimer(maxStreamExpireMs || 600000, api.logger);
+      cleanupExpiredBotStreams(maxStreamExpireMs || 600000);
 
-    api.registerHttpRoute({
-      path: normalizedPath,
-      auth: "plugin",
-      handler,
-    });
+      const handler = createWecomBotWebhookHandler({
+        api,
+        botConfigs: pathConfigs,
+        normalizedPath,
+        readRequestBody,
+        parseIncomingJson,
+        computeMsgSignature,
+        decryptWecom,
+        parseWecomBotInboundMessage,
+        describeWecomBotParsedMessage,
+        cleanupExpiredBotStreams,
+        getBotStream,
+        buildWecomBotEncryptedResponse,
+        markInboundMessageSeen,
+        buildWecomBotSessionId,
+        createBotStream,
+        upsertBotResponseUrlCache,
+        messageProcessLimiter,
+        executeInboundTaskWithSessionQueue,
+        processBotInboundMessage,
+        deliverBotReplyText,
+        finishBotStream,
+      });
 
-    api.logger.info?.(`wecom(bot): registered webhook at ${normalizedPath}`);
-    return true;
+      api.registerHttpRoute({
+        path: normalizedPath,
+        auth: "plugin",
+        handler,
+      });
+
+      const accountIds = pathConfigs.map((item) => String(item?.accountId ?? "default")).join(", ");
+      api.logger.info?.(`wecom(bot): registered webhook at ${normalizedPath} (accounts=${accountIds})`);
+      registeredCount += 1;
+    }
+    return registeredCount > 0;
   }
 
   function registerWecomAgentWebhookRoutes(api) {

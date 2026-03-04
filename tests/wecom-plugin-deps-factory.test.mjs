@@ -80,6 +80,7 @@ test("createPluginRouteRuntimeDeps maps route/runtime dependencies", () => {
   const fn = () => {};
   const deps = createPluginRouteRuntimeDeps({
     resolveWecomBotConfig: fn,
+    resolveWecomBotConfigs: fn,
     normalizePluginHttpPath: fn,
     ensureBotStreamCleanupTimer: fn,
     cleanupExpiredBotStreams: fn,

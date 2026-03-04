@@ -272,7 +272,7 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | `webhookPath` | string | `/wecom/callback` | Agent 回调路径 |
 | `outboundProxy` | string | - | WeCom 出站代理 |
 | `webhooks` | object | - | 命名 Webhook 目标映射（如 `{ "ops": "https://...key=xxx" }`） |
-| `accounts` | object | - | 多账户配置 |
+| `accounts` | object | - | 多账户配置（支持 `accounts.<id>.bot` 独立 Bot 配置） |
 
 兼容说明：旧字段 `token` / `encodingAesKey` 仍可用于 Agent 模式（分别等价于 `callbackToken` / `callbackAesKey`），建议逐步迁移到新字段名。
 
@@ -289,6 +289,23 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | `replyTimeoutMs` | integer | `90000` | Bot 等待模型回包超时（15s~10m） |
 | `lateReplyWatchMs` | integer | `180000` | Bot 超时后异步补发观察窗口（30s~10m） |
 | `lateReplyPollMs` | integer | `2000` | Bot 异步补发轮询间隔（500ms~10s） |
+
+### 多账户 Bot 覆盖配置（`channels.wecom.accounts.<id>.bot`）
+
+当你启用了 `accounts` 多账户时，可以为每个账户单独配置 Bot 回调密钥、路径、超时和代理；若未配置，则回退到 `channels.wecom.bot`。
+
+| 键 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `enabled` | boolean | `false` | 是否启用该账户 Bot |
+| `token` / `callbackToken` | string | - | 该账户 Bot 回调 Token（兼容旧字段） |
+| `encodingAesKey` / `callbackAesKey` | string | - | 该账户 Bot 回调 AESKey（兼容旧字段） |
+| `webhookPath` | string | `/wecom/bot/callback` | 该账户 Bot 回调路径 |
+| `placeholderText` | string | `消息已收到...` | stream 初始占位文案 |
+| `streamExpireMs` | integer | `600000` | stream 状态保留时间 |
+| `replyTimeoutMs` | integer | `90000` | Bot 等待模型回包超时 |
+| `lateReplyWatchMs` | integer | `180000` | 超时后异步补发观察窗口 |
+| `lateReplyPollMs` | integer | `2000` | 异步补发轮询间隔 |
+| `outboundProxy` / `proxyUrl` / `proxy` | string | - | 该账户 Bot 专用代理（优先于全局） |
 
 ### 授权与指令策略
 
@@ -350,6 +367,14 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
           "callbackAesKey": "aes-sales",
           "webhookPath": "/wecom/sales/callback",
           "outboundProxy": "http://10.0.0.5:8888",
+          "bot": {
+            "enabled": true,
+            "token": "sales-bot-token",
+            "encodingAesKey": "sales-bot-aes",
+            "webhookPath": "/wecom/sales/bot/callback",
+            "replyTimeoutMs": 120000,
+            "outboundProxy": "http://10.0.0.9:7890"
+          },
           "allowFrom": ["alice", "wecom:bob"],
           "allowFromRejectMessage": "销售助手未授权，请联系管理员。"
         }
@@ -437,6 +462,8 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | `WECOM_BOT_REPLY_TIMEOUT_MS` | 否 | Bot 等待模型回包超时 |
 | `WECOM_BOT_LATE_REPLY_WATCH_MS` | 否 | Bot 超时后补发观察窗口 |
 | `WECOM_BOT_LATE_REPLY_POLL_MS` | 否 | Bot 补发轮询间隔 |
+| `WECOM_<ACCOUNT>_BOT_*` | 否 | 账户级 Bot 覆盖（如 `WECOM_SALES_BOT_TOKEN`） |
+| `WECOM_<ACCOUNT>_BOT_PROXY` | 否 | 账户级 Bot 媒体下载/回包代理 |
 
 ### 策略与流控
 

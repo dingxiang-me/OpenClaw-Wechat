@@ -9,6 +9,7 @@ export function createPluginRouteRuntimeDeps(context = {}) {
   return {
     routeRegistrarDeps: {
       resolveWecomBotConfig: context.resolveWecomBotConfig,
+      resolveWecomBotConfigs: context.resolveWecomBotConfigs,
       normalizePluginHttpPath: context.normalizePluginHttpPath,
       ensureBotStreamCleanupTimer: context.ensureBotStreamCleanupTimer,
       cleanupExpiredBotStreams: context.cleanupExpiredBotStreams,
@@ -47,6 +48,7 @@ export function createPluginRouteRuntimeDeps(context = {}) {
       resolveWecomObservabilityPolicy: context.resolveWecomObservabilityPolicy,
       resolveWecomDynamicAgentPolicy: context.resolveWecomDynamicAgentPolicy,
       resolveWecomBotConfig: context.resolveWecomBotConfig,
+      resolveWecomBotConfigs: context.resolveWecomBotConfigs,
       getWecomConfig: context.getWecomConfig,
       wecomChannelPlugin: context.wecomChannelPlugin,
     },

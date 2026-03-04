@@ -14,11 +14,12 @@ export function createWecomAgentPushDeliverer({
   return async function deliverAgentPushReply({
     api,
     fromUser,
+    accountId = "default",
     content = "",
     fallbackText = "",
     mediaFallbackSuffix = "",
   } = {}) {
-    const account = getWecomConfig(api, "default") ?? getWecomConfig(api);
+    const account = getWecomConfig(api, accountId) ?? getWecomConfig(api, "default") ?? getWecomConfig(api);
     if (!account?.corpId || !account?.corpSecret || !account?.agentId) {
       return { ok: false, reason: "agent-config-missing" };
     }

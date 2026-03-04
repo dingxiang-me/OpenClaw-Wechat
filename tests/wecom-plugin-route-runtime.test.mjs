@@ -12,6 +12,16 @@ function createRouteRegistrarDeps() {
       webhookPath: "/wecom/bot/callback",
       streamExpireMs: 600000,
     }),
+    resolveWecomBotConfigs: () => [
+      {
+        accountId: "default",
+        enabled: true,
+        token: "token",
+        encodingAesKey: "aes",
+        webhookPath: "/wecom/bot/callback",
+        streamExpireMs: 600000,
+      },
+    ],
     normalizePluginHttpPath: (path) => path,
     ensureBotStreamCleanupTimer: () => {},
     cleanupExpiredBotStreams: () => {},
@@ -57,6 +67,7 @@ function createRegisterRuntimeDeps() {
     resolveWecomObservabilityPolicy: () => ({ enabled: false, logPayloadMeta: false }),
     resolveWecomDynamicAgentPolicy: () => ({ enabled: false, mode: "mapping", userMap: {}, groupMap: {}, mentionMap: {} }),
     resolveWecomBotConfig: () => ({ enabled: false }),
+    resolveWecomBotConfigs: () => [{ accountId: "default", enabled: false }],
     getWecomConfig: () => ({
       corpId: "ww1",
       corpSecret: "sec",

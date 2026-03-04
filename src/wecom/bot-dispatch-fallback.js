@@ -50,6 +50,7 @@ export async function handleWecomBotDispatchError({
   startLateReplyWatcher,
   sessionId,
   fromUser,
+  accountId = "default",
   buildWecomBotSessionId,
   runtime,
   cfg,
@@ -78,7 +79,7 @@ export async function handleWecomBotDispatchError({
   }
 
   try {
-    const runtimeSessionId = sessionId || buildWecomBotSessionId(fromUser);
+    const runtimeSessionId = sessionId || buildWecomBotSessionId(fromUser, accountId);
     const runtimeStorePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
       agentId: routedAgentId || "main",
     });

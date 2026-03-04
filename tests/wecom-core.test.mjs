@@ -460,6 +460,74 @@ test("resolveWecomBotModeConfig reads config and env fallback", () => {
   assert.equal(explicitEmpty.placeholderText, "");
 });
 
+test("resolveWecomBotModeConfig supports account-scoped bot config and legacy keys", () => {
+  const cfg = core.resolveWecomBotModeConfig({
+    channelConfig: {
+      accounts: {
+        sales: {
+          bot: {
+            enabled: true,
+            callbackToken: "sales-callback-token",
+            callbackAesKey: "sales-callback-aes",
+            webhookPath: "/wecom/sales/bot/callback",
+            placeholderText: "sales processing",
+          },
+        },
+      },
+    },
+    envVars: {},
+    processEnv: {},
+    accountId: "sales",
+  });
+  assert.equal(cfg.accountId, "sales");
+  assert.equal(cfg.enabled, true);
+  assert.equal(cfg.token, "sales-callback-token");
+  assert.equal(cfg.encodingAesKey, "sales-callback-aes");
+  assert.equal(cfg.webhookPath, "/wecom/sales/bot/callback");
+  assert.equal(cfg.placeholderText, "sales processing");
+});
+
+test("resolveWecomBotModeAccountsConfig includes config/env scoped bot accounts", () => {
+  const configs = core.resolveWecomBotModeAccountsConfig({
+    channelConfig: {
+      bot: {
+        enabled: true,
+        token: "default-token",
+        encodingAesKey: "default-aes",
+      },
+      accounts: {
+        sales: {
+          enabled: true,
+          bot: {
+            enabled: true,
+            token: "sales-token",
+            encodingAesKey: "sales-aes",
+            webhookPath: "/wecom/sales/bot/callback",
+          },
+        },
+        hr: {
+          enabled: true,
+          webhookPath: "/wecom/hr/callback",
+        },
+      },
+    },
+    envVars: {
+      WECOM_OPS_BOT_ENABLED: "true",
+      WECOM_OPS_BOT_TOKEN: "ops-token",
+      WECOM_OPS_BOT_ENCODING_AES_KEY: "ops-aes",
+      WECOM_OPS_BOT_WEBHOOK_PATH: "/wecom/ops/bot/callback",
+    },
+    processEnv: {},
+  });
+  const byAccount = new Map(configs.map((item) => [item.accountId, item]));
+  assert.equal(byAccount.get("default")?.token, "default-token");
+  assert.equal(byAccount.get("sales")?.token, "sales-token");
+  assert.equal(byAccount.get("sales")?.webhookPath, "/wecom/sales/bot/callback");
+  assert.equal(byAccount.get("ops")?.token, "ops-token");
+  assert.equal(byAccount.get("ops")?.webhookPath, "/wecom/ops/bot/callback");
+  assert.equal(byAccount.has("hr"), false);
+});
+
 test("resolveWecomDeliveryFallbackConfig defaults and normalization", () => {
   const defaults = core.resolveWecomDeliveryFallbackConfig({
     channelConfig: {},

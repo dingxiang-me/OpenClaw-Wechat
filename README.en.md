@@ -140,7 +140,7 @@ openclaw plugins install @dingxiang-me/openclaw-wechat
 | `webhookPath` | string | `/wecom/callback` | Agent callback path |
 | `outboundProxy` | string | - | WeCom API proxy |
 | `webhooks` | object | - | named webhook target map (`{ "ops": "https://...key=xxx" }`) |
-| `accounts` | object | - | multi-account map |
+| `accounts` | object | - | multi-account map (supports `accounts.<id>.bot` overrides) |
 
 Compatibility note: legacy Agent keys `token` / `encodingAesKey` are still accepted (mapped to `callbackToken` / `callbackAesKey`). Prefer the new names for new configs.
 
@@ -157,6 +157,23 @@ Compatibility note: legacy Agent keys `token` / `encodingAesKey` are still accep
 | `replyTimeoutMs` | integer | `90000` | Bot reply timeout (15s ~ 10m) |
 | `lateReplyWatchMs` | integer | `180000` | async late-reply watch window |
 | `lateReplyPollMs` | integer | `2000` | async late-reply poll interval |
+
+### Account-level Bot overrides (`channels.wecom.accounts.<id>.bot`)
+
+When multi-account is enabled, each account can override Bot callback credentials/path/timeout/proxy. If omitted, it falls back to `channels.wecom.bot`.
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | boolean | `false` | enable Bot mode for this account |
+| `token` / `callbackToken` | string | - | callback token (legacy alias supported) |
+| `encodingAesKey` / `callbackAesKey` | string | - | callback AES key (legacy alias supported) |
+| `webhookPath` | string | `/wecom/bot/callback` | Bot callback path |
+| `placeholderText` | string | processing text | stream placeholder |
+| `streamExpireMs` | integer | `600000` | stream TTL |
+| `replyTimeoutMs` | integer | `90000` | model reply timeout |
+| `lateReplyWatchMs` | integer | `180000` | late-reply watch window |
+| `lateReplyPollMs` | integer | `2000` | late-reply poll interval |
+| `outboundProxy` / `proxyUrl` / `proxy` | string | - | account-level Bot proxy |
 
 ### Policy config
 
@@ -241,6 +258,8 @@ Outbound target formats:
 | `WECOM_BOT_REPLY_TIMEOUT_MS` | Bot reply timeout |
 | `WECOM_BOT_LATE_REPLY_WATCH_MS` | Bot late-reply watch window |
 | `WECOM_BOT_LATE_REPLY_POLL_MS` | Bot late-reply poll interval |
+| `WECOM_<ACCOUNT>_BOT_*` | account-level Bot override (e.g. `WECOM_SALES_BOT_TOKEN`) |
+| `WECOM_<ACCOUNT>_BOT_PROXY` | account-level Bot proxy for media/download/reply |
 
 ### Stability and policy
 

@@ -26,6 +26,8 @@ export function createWecomPluginDeliveryInboundServices({
   getWecomConfig,
   sendWecomText,
   fetchMediaFromUrl,
+  extractWorkspacePathsFromText,
+  resolveWorkspacePathToHost,
   downloadWecomMedia,
   resolveWecomVoiceTranscriptionConfig,
   transcribeInboundVoice,
@@ -60,6 +62,8 @@ export function createWecomPluginDeliveryInboundServices({
     getWecomConfig,
     sendWecomText,
     fetchMediaFromUrl,
+    extractWorkspacePathsFromText,
+    resolveWorkspacePathToHost,
   });
 
   const { buildInboundContent } = createWecomInboundContentBuilder({

@@ -52,6 +52,7 @@ export function applyWecomBotGroupChatGuard({
 
 export function applyWecomBotCommandAndSenderGuard({
   api,
+  accountId = "default",
   fromUser,
   msgType = "text",
   commandBody = "",
@@ -72,7 +73,7 @@ export function applyWecomBotCommandAndSenderGuard({
 
   const commandPolicy = resolveWecomCommandPolicy(api);
   const isAdminUser = commandPolicy.adminUsers.includes(String(normalizedFromUser ?? "").trim().toLowerCase());
-  const allowFromPolicy = resolveWecomAllowFromPolicy(api, "default", {});
+  const allowFromPolicy = resolveWecomAllowFromPolicy(api, accountId, {});
   const senderAllowed = isAdminUser || isWecomSenderAllowed({
     senderId: normalizedFromUser,
     allowFrom: allowFromPolicy.allowFrom,

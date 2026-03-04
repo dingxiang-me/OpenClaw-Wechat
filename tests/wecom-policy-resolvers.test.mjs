@@ -13,6 +13,10 @@ test("createWecomPolicyResolvers uses gateway runtime config fallback", () => {
     }),
     normalizeAccountId: (id) => String(id ?? "").trim().toLowerCase() || "default",
     resolveWecomBotModeConfig: (inputs) => ({ enabled: Boolean(inputs.channelConfig?.enabled) }),
+    resolveWecomBotModeAccountsConfig: () => [
+      { accountId: "default", enabled: true },
+      { accountId: "sales", enabled: true, token: "sales-token" },
+    ],
     resolveWecomProxyConfig: () => "",
     resolveWecomCommandPolicyConfig: () => ({ enabled: true }),
     resolveWecomAllowFromPolicyConfig: (inputs) => ({ accountId: inputs.accountId }),
@@ -28,10 +32,13 @@ test("createWecomPolicyResolvers uses gateway runtime config fallback", () => {
   });
 
   const botCfg = policy.resolveWecomBotConfig({});
+  const botConfigs = policy.resolveWecomBotConfigs({});
   const allowFrom = policy.resolveWecomAllowFromPolicy({}, " OPS ", {});
   const fallback = policy.resolveWecomDeliveryFallbackPolicy({});
 
   assert.equal(botCfg.enabled, true);
+  assert.equal(botCfg.accountId, "default");
+  assert.equal(botConfigs.length, 2);
   assert.equal(allowFrom.accountId, "ops");
   assert.equal(fallback.enabled, true);
 });

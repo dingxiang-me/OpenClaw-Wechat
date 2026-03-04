@@ -35,6 +35,12 @@ function createDispatcher(overrides = {}) {
     deliveredErrors: [],
     cleanupCalls: [],
   };
+  const activeBotConfig = {
+    token: "token",
+    encodingAesKey: "a".repeat(43),
+    placeholderText: "处理中",
+    streamExpireMs: 600000,
+  };
 
   const dispatcher = createWecomBotParsedDispatcher({
     api: {
@@ -43,12 +49,6 @@ function createDispatcher(overrides = {}) {
         warn() {},
         error() {},
       },
-    },
-    botConfig: {
-      token: "token",
-      encodingAesKey: "a".repeat(43),
-      placeholderText: "处理中",
-      streamExpireMs: 600000,
     },
     cleanupExpiredBotStreams: (expireMs) => state.cleanupCalls.push(expireMs),
     getBotStream: () => null,
@@ -89,11 +89,12 @@ function createDispatcher(overrides = {}) {
   return {
     dispatcher,
     state,
+    activeBotConfig,
   };
 }
 
 test("dispatchParsed handles stream-refresh and returns encrypted stream payload", async () => {
-  const { dispatcher, state } = createDispatcher({
+  const { dispatcher, state, activeBotConfig } = createDispatcher({
     getBotStream: () => ({
       content: "增量内容",
       finished: false,
@@ -112,6 +113,7 @@ test("dispatchParsed handles stream-refresh and returns encrypted stream payload
     res,
     timestamp: "1",
     nonce: "2",
+    botConfig: activeBotConfig,
   });
 
   assert.equal(handled, true);
@@ -128,7 +130,7 @@ test("dispatchParsed handles stream-refresh and returns encrypted stream payload
 });
 
 test("dispatchParsed handles message and schedules async bot processing", async () => {
-  const { dispatcher, state } = createDispatcher();
+  const { dispatcher, state, activeBotConfig } = createDispatcher();
   const { res, getHeader } = createResponseMock();
 
   const handled = await dispatcher({
@@ -150,6 +152,7 @@ test("dispatchParsed handles message and schedules async bot processing", async 
     res,
     timestamp: "1",
     nonce: "2",
+    botConfig: activeBotConfig,
   });
 
   assert.equal(handled, true);
@@ -171,7 +174,7 @@ test("dispatchParsed handles message and schedules async bot processing", async 
 });
 
 test("dispatchParsed returns success and skips duplicate bot message", async () => {
-  const { dispatcher, state } = createDispatcher({
+  const { dispatcher, state, activeBotConfig } = createDispatcher({
     markInboundMessageSeen: () => false,
   });
   const { res, getBody, getHeader } = createResponseMock();
@@ -187,6 +190,7 @@ test("dispatchParsed returns success and skips duplicate bot message", async () 
     res,
     timestamp: "1",
     nonce: "2",
+    botConfig: activeBotConfig,
   });
 
   assert.equal(handled, true);

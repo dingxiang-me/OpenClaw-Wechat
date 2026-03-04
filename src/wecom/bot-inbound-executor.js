@@ -13,6 +13,7 @@ export async function executeWecomBotInboundFlow(payload = {}) {
   const {
     api,
     streamId,
+    accountId = "default",
     fromUser,
     content,
     msgType = "text",
@@ -22,6 +23,9 @@ export async function executeWecomBotInboundFlow(payload = {}) {
     imageUrls = [],
     fileUrl = "",
     fileName = "",
+    voiceUrl = "",
+    voiceMediaId = "",
+    voiceContentType = "",
     quote = null,
     responseUrl = "",
     buildWecomBotSessionId,
@@ -65,11 +69,15 @@ export async function executeWecomBotInboundFlow(payload = {}) {
 
   const state = createWecomBotInboundFlowState({
     api,
+    accountId,
     fromUser,
     content,
     imageUrls,
     fileUrl,
     fileName,
+    voiceUrl,
+    voiceMediaId,
+    voiceContentType,
     quote,
     buildWecomBotSessionId,
     resolveWecomBotConfig,
@@ -111,6 +119,7 @@ export async function executeWecomBotInboundFlow(payload = {}) {
 
     const commandGuardResult = applyWecomBotCommandAndSenderGuard({
       api,
+      accountId: state.accountId,
       fromUser,
       msgType,
       commandBody: state.commandBody,
@@ -138,6 +147,10 @@ export async function executeWecomBotInboundFlow(payload = {}) {
       normalizedImageUrls: state.normalizedImageUrls,
       normalizedFileUrl: state.normalizedFileUrl,
       normalizedFileName: state.normalizedFileName,
+      normalizedVoiceUrl: state.normalizedVoiceUrl,
+      normalizedVoiceMediaId: state.normalizedVoiceMediaId,
+      normalizedVoiceContentType: state.normalizedVoiceContentType,
+      voiceInputMessageId: msgId,
       normalizedQuote: state.normalizedQuote,
     });
     if (Array.isArray(inboundContentResult.tempPathsToCleanup)) {
@@ -166,6 +179,7 @@ export async function executeWecomBotInboundFlow(payload = {}) {
       commandBody: state.commandBody,
       originalContent: state.originalContent,
       fromAddress: state.fromAddress,
+      accountId: state.accountId,
       groupChatPolicy: state.groupChatPolicy,
       dynamicAgentPolicy: state.dynamicAgentPolicy,
       isAdminUser: state.isAdminUser,
@@ -186,6 +200,7 @@ export async function executeWecomBotInboundFlow(payload = {}) {
       cfg,
       ctxPayload,
       streamId,
+      accountId: state.accountId,
       sessionId: state.sessionId,
       routedAgentId: state.routedAgentId,
       storePath,
@@ -225,6 +240,7 @@ export async function executeWecomBotInboundFlow(payload = {}) {
       readTranscriptFallbackResult,
       safeDeliverReply,
       markTranscriptReplyDelivered,
+      accountId: state.accountId,
     });
     if (shouldReturnFromError) return;
   } finally {

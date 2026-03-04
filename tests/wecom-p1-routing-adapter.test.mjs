@@ -195,6 +195,25 @@ test("parseWecomBotInboundMessage parses file payload", () => {
   assert.match(parsed.content, /\[文件\]/);
 });
 
+test("parseWecomBotInboundMessage parses voice payload url/media metadata", () => {
+  const parsed = parseWecomBotInboundMessage({
+    msgtype: "voice",
+    msgid: "v1",
+    from: { userid: "dingxiang" },
+    voice: {
+      url: "https://example.com/voice.amr",
+      media_id: "media-voice-1",
+      content_type: "audio/amr",
+      content: "",
+    },
+  });
+  assert.equal(parsed.kind, "message");
+  assert.equal(parsed.msgType, "voice");
+  assert.equal(parsed.voiceUrl, "https://example.com/voice.amr");
+  assert.equal(parsed.voiceMediaId, "media-voice-1");
+  assert.equal(parsed.voiceContentType, "audio/amr");
+});
+
 test("parseWecomBotInboundMessage parses quote metadata", () => {
   const parsed = parseWecomBotInboundMessage({
     msgtype: "text",

@@ -185,6 +185,8 @@ export function createWecomPluginBaseServices({
     sendWecomWebhookMediaBatch,
     sendWecomOutboundMediaBatch,
     autoSendWorkspaceFilesFromReplyText,
+    extractWorkspacePathsFromText,
+    resolveWorkspacePathToHost,
     normalizeWecomResolvedTarget,
     formatWecomTargetForLog,
   };

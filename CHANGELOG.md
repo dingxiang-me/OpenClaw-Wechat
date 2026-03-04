@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-03-04
+
+### Added
+- Bot 模式补齐语音 URL 下载 + 本地转写链路：支持从 `voice.url/media_url/download_url/file_url` 拉取音频并接入本地转写
+- Bot 多账号能力增强：支持 `channels.wecom.accounts.<id>.bot` 独立配置与 `WECOM_<ACCOUNT>_BOT_*` 环境变量覆盖
+- Bot 路由增强：同一路径支持多账户签名匹配并按账户分组注册 webhook
+- Bot 回包增强：支持从回复文本中提取 `/workspace/...` 本地图片并自动打包为 `active_stream msg_item(image)`
+- 新增/扩展回归测试，覆盖 Bot 多账号、语音转写、workspace 图片打包等关键路径（总测试数提升到 264）
+
+### Changed
+- `register-runtime` 启动日志升级：支持展示 Bot 多账户加载状态与 webhook 聚合信息
+- `openclaw.plugin.json` 新增 `accounts.<id>.bot` schema 与敏感字段标记
+- README（中英文）补充多账户 Bot 覆盖配置与环境变量说明
+
+### Fixed
+- 修复 Bot 入站内容构建依赖注入缺失导致的运行时异常（`resolveWecomVoiceTranscriptionConfig is required`）
+- 修复 Bot dispatcher 在多账号场景下因未携带匹配账户配置导致的 401 响应问题
+- 修复路由注册与依赖工厂在多账号 Bot resolver 接入后的兼容性回归
+
 ## [1.4.1] - 2026-03-03
 
 ### Added

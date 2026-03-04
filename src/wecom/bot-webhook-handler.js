@@ -4,6 +4,7 @@ import { createWecomBotParsedDispatcher } from "./bot-webhook-dispatch.js";
 export function createWecomBotWebhookHandler({
   api,
   botConfig,
+  botConfigs,
   normalizedPath,
   readRequestBody,
   parseIncomingJson,
@@ -24,9 +25,24 @@ export function createWecomBotWebhookHandler({
   deliverBotReplyText,
   finishBotStream,
 } = {}) {
+  const configuredBotConfigs = Array.isArray(botConfigs) && botConfigs.length > 0 ? botConfigs : [botConfig];
+  const signedBotConfigs = configuredBotConfigs.filter((item) => item?.token && item?.encodingAesKey);
+  function pickBotConfigBySignature({ msgSignature, timestamp, nonce, encrypt }) {
+    if (!msgSignature || !encrypt) return null;
+    for (const cfg of signedBotConfigs) {
+      const expected = computeMsgSignature({
+        token: cfg.token,
+        timestamp,
+        nonce,
+        encrypt,
+      });
+      if (expected === msgSignature) return cfg;
+    }
+    return null;
+  }
+
   const dispatchParsed = createWecomBotParsedDispatcher({
     api,
-    botConfig,
     cleanupExpiredBotStreams,
     getBotStream,
     buildWecomBotEncryptedResponse,
@@ -51,9 +67,9 @@ export function createWecomBotWebhookHandler({
       const echostr = url.searchParams.get("echostr") ?? "";
 
       if (req.method === "GET" && !echostr) {
-        res.statusCode = 200;
+        res.statusCode = signedBotConfigs.length > 0 ? 200 : 500;
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        res.end("wecom bot webhook ok");
+        res.end(signedBotConfigs.length > 0 ? "wecom bot webhook ok" : "wecom bot webhook not configured");
         return;
       }
 
@@ -64,26 +80,28 @@ export function createWecomBotWebhookHandler({
           res.end("Missing query params");
           return;
         }
-        const expected = computeMsgSignature({
-          token: botConfig.token,
+        const matchedBotConfig = pickBotConfigBySignature({
+          msgSignature: msg_signature,
           timestamp,
           nonce,
           encrypt: echostr,
         });
-        if (expected !== msg_signature) {
+        if (!matchedBotConfig) {
           res.statusCode = 401;
           res.setHeader("Content-Type", "text/plain; charset=utf-8");
           res.end("Invalid signature");
           return;
         }
         const { msg: plainEchostr } = decryptWecom({
-          aesKey: botConfig.encodingAesKey,
+          aesKey: matchedBotConfig.encodingAesKey,
           cipherTextBase64: echostr,
         });
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
         res.end(plainEchostr);
-        api.logger.info?.(`wecom(bot): verified callback URL at ${normalizedPath}`);
+        api.logger.info?.(
+          `wecom(bot): verified callback URL at ${normalizedPath} (account=${matchedBotConfig.accountId || "default"})`,
+        );
         return;
       }
 
@@ -114,13 +132,13 @@ export function createWecomBotWebhookHandler({
         return;
       }
 
-      const expected = computeMsgSignature({
-        token: botConfig.token,
+      const matchedBotConfig = pickBotConfigBySignature({
+        msgSignature: msg_signature,
         timestamp,
         nonce,
         encrypt: encryptedBody,
       });
-      if (expected !== msg_signature) {
+      if (!matchedBotConfig) {
         res.statusCode = 401;
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
         res.end("Invalid signature");
@@ -130,7 +148,7 @@ export function createWecomBotWebhookHandler({
       let incomingPayload = null;
       try {
         const { msg: decryptedPayload } = decryptWecom({
-          aesKey: botConfig.encodingAesKey,
+          aesKey: matchedBotConfig.encodingAesKey,
           cipherTextBase64: encryptedBody,
         });
         incomingPayload = parseIncomingJson(decryptedPayload);
@@ -143,12 +161,18 @@ export function createWecomBotWebhookHandler({
       }
 
       const parsed = parseWecomBotInboundMessage(incomingPayload);
-      api.logger.info?.(`wecom(bot): inbound ${describeWecomBotParsedMessage(parsed)}`);
+      if (parsed && typeof parsed === "object") {
+        parsed.accountId = String(matchedBotConfig.accountId ?? "default").trim().toLowerCase() || "default";
+      }
+      api.logger.info?.(
+        `wecom(bot): inbound ${describeWecomBotParsedMessage(parsed)} account=${matchedBotConfig.accountId || "default"}`,
+      );
       const handled = await dispatchParsed({
         parsed,
         res,
         timestamp,
         nonce,
+        botConfig: matchedBotConfig,
       });
       if (handled) {
         return;

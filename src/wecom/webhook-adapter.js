@@ -67,11 +67,22 @@ export function parseWecomBotInboundMessage(payload) {
   const imageUrls = [];
   let fileUrl = "";
   let fileName = "";
+  let voiceUrl = "";
+  let voiceMediaId = "";
+  let voiceContentType = "";
 
   if (msgType === "text") {
     content = normalizeToken(payload?.text?.content);
   } else if (msgType === "voice") {
     content = normalizeToken(payload?.voice?.content);
+    voiceUrl = normalizeToken(
+      payload?.voice?.url ||
+        payload?.voice?.media_url ||
+        payload?.voice?.download_url ||
+        payload?.voice?.file_url,
+    );
+    voiceMediaId = normalizeToken(payload?.voice?.media_id || payload?.voice?.mediaid || payload?.voice?.id);
+    voiceContentType = normalizeToken(payload?.voice?.content_type || payload?.voice?.mime_type || payload?.voice?.format);
   } else if (msgType === "link") {
     const title = normalizeToken(payload?.link?.title);
     const description = normalizeToken(payload?.link?.description);
@@ -98,6 +109,23 @@ export function parseWecomBotInboundMessage(payload) {
         if (itemImageUrls.length > 0) {
           imageUrls.push(...itemImageUrls);
           parts.push("[图片]");
+        }
+      } else if (itemType === "voice") {
+        const itemVoiceUrl = normalizeToken(
+          item?.voice?.url ||
+            item?.voice?.media_url ||
+            item?.voice?.download_url ||
+            item?.voice?.file_url,
+        );
+        const itemVoiceMediaId = normalizeToken(item?.voice?.media_id || item?.voice?.mediaid || item?.voice?.id);
+        const itemVoiceContentType = normalizeToken(
+          item?.voice?.content_type || item?.voice?.mime_type || item?.voice?.format,
+        );
+        if (itemVoiceUrl) {
+          voiceUrl = voiceUrl || itemVoiceUrl;
+          voiceMediaId = voiceMediaId || itemVoiceMediaId;
+          voiceContentType = voiceContentType || itemVoiceContentType;
+          parts.push("[语音]");
         }
       }
     }
@@ -143,6 +171,9 @@ export function parseWecomBotInboundMessage(payload) {
     imageUrls: dedupeUrlList(imageUrls),
     fileUrl,
     fileName,
+    voiceUrl,
+    voiceMediaId,
+    voiceContentType,
     feedbackId,
     quote,
     isGroupChat: chatType === "group" || Boolean(chatId),

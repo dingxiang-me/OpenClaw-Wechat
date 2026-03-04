@@ -2,6 +2,7 @@ export function createWecomPolicyResolvers({
   getGatewayRuntime,
   normalizeAccountId,
   resolveWecomBotModeConfig,
+  resolveWecomBotModeAccountsConfig,
   resolveWecomProxyConfig,
   resolveWecomCommandPolicyConfig,
   resolveWecomAllowFromPolicyConfig,
@@ -31,16 +32,59 @@ export function createWecomPolicyResolvers({
     };
   }
 
-  function resolveWecomBotConfig(api) {
-    return resolveWecomBotModeConfig(resolveWecomPolicyInputs(api));
+  function resolveWecomBotConfigs(api) {
+    const inputs = resolveWecomPolicyInputs(api);
+    if (typeof resolveWecomBotModeAccountsConfig === "function") {
+      return resolveWecomBotModeAccountsConfig(inputs);
+    }
+    return [resolveWecomBotModeConfig(inputs)];
   }
 
-  function resolveWecomBotProxyConfig(api) {
+  function resolveWecomBotConfig(api, accountId = "default") {
+    const normalizedAccountId = normalizeAccountId(accountId ?? "default");
+    const configs = resolveWecomBotConfigs(api);
+    const matched = configs.find((item) => normalizeAccountId(item?.accountId ?? "default") === normalizedAccountId);
+    if (matched) return matched;
+    if (normalizedAccountId !== "default") {
+      const fallback = configs.find((item) => normalizeAccountId(item?.accountId ?? "default") === "default");
+      if (fallback) return fallback;
+    }
+    return configs[0] ?? resolveWecomBotModeConfig(resolveWecomPolicyInputs(api));
+  }
+
+  function resolveWecomBotProxyConfig(api, accountId = "default") {
     const inputs = resolveWecomPolicyInputs(api);
+    const normalizedAccountId = normalizeAccountId(accountId ?? "default");
+    const channelConfig = inputs.channelConfig ?? {};
+    const accountConfig =
+      normalizedAccountId === "default"
+        ? channelConfig
+        : channelConfig?.accounts && typeof channelConfig.accounts === "object"
+          ? channelConfig.accounts[normalizedAccountId] ?? {}
+          : {};
+    const botConfig = accountConfig?.bot && typeof accountConfig.bot === "object" ? accountConfig.bot : {};
+    const envVars = inputs.envVars ?? {};
+    const processEnvVars = inputs.processEnv ?? process.env;
+    const scopedBotProxyKey =
+      normalizedAccountId === "default" ? null : `WECOM_${normalizedAccountId.toUpperCase()}_BOT_PROXY`;
+    const scopedBotProxy = String(
+      (scopedBotProxyKey ? envVars?.[scopedBotProxyKey] ?? processEnvVars?.[scopedBotProxyKey] : undefined) ??
+        envVars?.WECOM_BOT_PROXY ??
+        processEnvVars?.WECOM_BOT_PROXY ??
+        "",
+    ).trim();
+    const fromBotConfig = String(botConfig?.outboundProxy ?? botConfig?.proxyUrl ?? botConfig?.proxy ?? "").trim();
+    if (fromBotConfig) return fromBotConfig;
+    if (scopedBotProxy) return scopedBotProxy;
+
+    const proxyAccountConfig = {
+      ...(accountConfig && typeof accountConfig === "object" ? accountConfig : {}),
+      ...(botConfig && typeof botConfig === "object" ? botConfig : {}),
+    };
     return resolveWecomProxyConfig({
       ...inputs,
-      accountId: "bot",
-      accountConfig: {},
+      accountId: normalizedAccountId,
+      accountConfig: proxyAccountConfig,
     });
   }
 
@@ -91,6 +135,7 @@ export function createWecomPolicyResolvers({
 
   return {
     resolveWecomPolicyInputs,
+    resolveWecomBotConfigs,
     resolveWecomBotConfig,
     resolveWecomBotProxyConfig,
     resolveWecomCommandPolicy,

@@ -1,7 +1,7 @@
 {
   "id": "openclaw-wechat",
   "name": "OpenClaw-Wechat",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "channels": [
     "wecom"
@@ -638,6 +638,86 @@
               "type": "string",
               "default": "/wecom/callback"
             },
+            "bot": {
+              "type": "object",
+              "description": "该账户专用 Bot 模式配置（覆盖 channels.wecom.bot）",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "是否启用该账户 Bot 模式"
+                },
+                "token": {
+                  "type": "string",
+                  "description": "Bot 模式回调 Token"
+                },
+                "callbackToken": {
+                  "type": "string",
+                  "description": "兼容旧配置：等价 token"
+                },
+                "encodingAesKey": {
+                  "type": "string",
+                  "description": "Bot 模式回调 EncodingAESKey（43 位）",
+                  "x-sensitive": true
+                },
+                "callbackAesKey": {
+                  "type": "string",
+                  "description": "兼容旧配置：等价 encodingAesKey",
+                  "x-sensitive": true
+                },
+                "webhookPath": {
+                  "type": "string",
+                  "default": "/wecom/bot/callback",
+                  "description": "Bot 模式 webhook 路径"
+                },
+                "placeholderText": {
+                  "type": "string",
+                  "default": "消息已收到，正在处理中，请稍等片刻。",
+                  "description": "Bot 模式初始 stream 占位文本"
+                },
+                "streamExpireMs": {
+                  "type": "integer",
+                  "minimum": 30000,
+                  "maximum": 3600000,
+                  "default": 600000,
+                  "description": "Bot 流式会话保留时长（毫秒）"
+                },
+                "replyTimeoutMs": {
+                  "type": "integer",
+                  "minimum": 15000,
+                  "maximum": 600000,
+                  "default": 90000,
+                  "description": "Bot 模式等待模型回包超时（毫秒）"
+                },
+                "lateReplyWatchMs": {
+                  "type": "integer",
+                  "minimum": 30000,
+                  "maximum": 600000,
+                  "default": 180000,
+                  "description": "Bot 超时后异步补发观察窗口（毫秒）"
+                },
+                "lateReplyPollMs": {
+                  "type": "integer",
+                  "minimum": 500,
+                  "maximum": 10000,
+                  "default": 2000,
+                  "description": "Bot 异步补发轮询间隔（毫秒）"
+                },
+                "outboundProxy": {
+                  "type": "string",
+                  "description": "可选：该账户 Bot 回调媒体下载/回包专用代理（覆盖 channels.wecom.bot/outboundProxy）"
+                },
+                "proxyUrl": {
+                  "type": "string",
+                  "description": "兼容字段：等价 outboundProxy"
+                },
+                "proxy": {
+                  "type": "string",
+                  "description": "兼容字段：等价 outboundProxy"
+                }
+              }
+            },
             "outboundProxy": {
               "type": "string",
               "description": "可选：该账户专用 WeCom 出站 API 代理（覆盖 channels.wecom.outboundProxy）"
@@ -692,6 +772,18 @@
       "sensitive": true
     },
     "bot.encodingAesKey": {
+      "sensitive": true
+    },
+    "accounts.*.bot.token": {
+      "sensitive": true
+    },
+    "accounts.*.bot.callbackToken": {
+      "sensitive": true
+    },
+    "accounts.*.bot.encodingAesKey": {
+      "sensitive": true
+    },
+    "accounts.*.bot.callbackAesKey": {
       "sensitive": true
     },
     "webhookBot.key": {

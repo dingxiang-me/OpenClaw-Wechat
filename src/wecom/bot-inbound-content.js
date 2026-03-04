@@ -9,6 +9,8 @@ export function createWecomBotInboundContentBuilder({
   detectImageContentTypeFromBuffer,
   decryptWecomMediaBuffer,
   pickImageFileExtension,
+  resolveWecomVoiceTranscriptionConfig,
+  transcribeInboundVoice,
   inferFilenameFromMediaDownload,
   smartDecryptWecomFileBuffer,
   basename,
@@ -22,6 +24,8 @@ export function createWecomBotInboundContentBuilder({
   assertFunction("detectImageContentTypeFromBuffer", detectImageContentTypeFromBuffer);
   assertFunction("decryptWecomMediaBuffer", decryptWecomMediaBuffer);
   assertFunction("pickImageFileExtension", pickImageFileExtension);
+  assertFunction("resolveWecomVoiceTranscriptionConfig", resolveWecomVoiceTranscriptionConfig);
+  assertFunction("transcribeInboundVoice", transcribeInboundVoice);
   assertFunction("inferFilenameFromMediaDownload", inferFilenameFromMediaDownload);
   assertFunction("smartDecryptWecomFileBuffer", smartDecryptWecomFileBuffer);
   assertFunction("basename", basename);
@@ -39,6 +43,10 @@ export function createWecomBotInboundContentBuilder({
     normalizedImageUrls = [],
     normalizedFileUrl = "",
     normalizedFileName = "",
+    normalizedVoiceUrl = "",
+    normalizedVoiceMediaId = "",
+    normalizedVoiceContentType = "",
+    voiceInputMessageId = "",
     normalizedQuote = null,
   } = {}) {
     const tempPathsToCleanup = [];
@@ -175,6 +183,47 @@ export function createWecomBotInboundContentBuilder({
         }
       } else if (!messageText) {
         messageText = `[用户发送了一个文件: ${displayName}]`;
+      }
+    }
+
+    if (msgType === "voice") {
+      const existingVoiceText = String(messageText ?? "").trim();
+      const voiceUrl = String(normalizedVoiceUrl ?? "").trim();
+      const voiceMediaId = String(normalizedVoiceMediaId ?? "").trim() || String(voiceInputMessageId ?? "").trim();
+      if (existingVoiceText && existingVoiceText !== "[语音]") {
+        messageText = `[用户发送了一条语音]\n转写: ${existingVoiceText}`;
+      } else if (!voiceUrl) {
+        messageText = "语音接收成功，但未提供可下载的语音链接，请用户改发文字。";
+      } else {
+        const voiceConfig = resolveWecomVoiceTranscriptionConfig(api);
+        if (!voiceConfig.enabled) {
+          messageText = "已收到语音消息，但当前未启用语音转写，请改发文字。";
+        } else {
+          try {
+            const downloadedVoice = await fetchMediaFromUrl(voiceUrl, {
+              proxyUrl: botProxyUrl,
+              logger: api?.logger,
+              forceProxy: Boolean(botProxyUrl),
+              maxBytes: Math.max(voiceConfig.maxBytes || 0, 2 * 1024 * 1024),
+            });
+            const transcript = await transcribeInboundVoice({
+              api,
+              buffer: downloadedVoice.buffer,
+              contentType: normalizedVoiceContentType || downloadedVoice.contentType,
+              mediaId: voiceMediaId || `bot-voice-${Date.now()}`,
+              voiceConfig,
+            });
+            messageText = `[用户发送了一条语音]\n转写: ${String(transcript ?? "").trim()}`;
+          } catch (voiceErr) {
+            api?.logger?.warn?.(`wecom(bot): voice transcription failed: ${String(voiceErr?.message || voiceErr)}`);
+            return {
+              aborted: true,
+              abortText: "语音识别失败，请稍后重试。",
+              messageText: "",
+              tempPathsToCleanup,
+            };
+          }
+        }
       }
     }
 

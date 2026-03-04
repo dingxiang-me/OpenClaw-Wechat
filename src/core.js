@@ -1081,76 +1081,126 @@ export function resolveWecomBotModeConfig({
   channelConfig = {},
   envVars = {},
   processEnv = process.env,
+  accountId = "default",
+  botConfigOverride,
 } = {}) {
-  const botConfig = channelConfig?.bot && typeof channelConfig.bot === "object" ? channelConfig.bot : {};
+  const normalizedAccountId = normalizeAccountIdForEnv(accountId);
+  const accountConfig =
+    normalizedAccountId === "default"
+      ? channelConfig
+      : channelConfig?.accounts && typeof channelConfig.accounts === "object"
+        ? channelConfig.accounts[normalizedAccountId]
+        : null;
+  const scopedBotConfig =
+    normalizedAccountId === "default"
+      ? channelConfig?.bot
+      : accountConfig && typeof accountConfig === "object"
+        ? accountConfig.bot
+        : null;
+  const botConfig =
+    botConfigOverride && typeof botConfigOverride === "object"
+      ? botConfigOverride
+      : scopedBotConfig && typeof scopedBotConfig === "object"
+        ? scopedBotConfig
+        : {};
+
+  const scopedEnvVars = { ...(envVars && typeof envVars === "object" ? envVars : {}) };
+  const scopedProcessEnv = { ...(processEnv && typeof processEnv === "object" ? processEnv : {}) };
+  const botEnvSuffixes = [
+    "ENABLED",
+    "TOKEN",
+    "ENCODING_AES_KEY",
+    "WEBHOOK_PATH",
+    "PLACEHOLDER_TEXT",
+    "STREAM_EXPIRE_MS",
+    "REPLY_TIMEOUT_MS",
+    "LATE_REPLY_WATCH_MS",
+    "LATE_REPLY_POLL_MS",
+  ];
+  if (normalizedAccountId !== "default") {
+    const accountPrefix = `WECOM_${normalizedAccountId.toUpperCase()}_BOT_`;
+    for (const suffix of botEnvSuffixes) {
+      const scopedKey = `${accountPrefix}${suffix}`;
+      const mappedKey = `WECOM_BOT_${suffix}`;
+      if (Object.prototype.hasOwnProperty.call(scopedEnvVars, scopedKey)) {
+        scopedEnvVars[mappedKey] = scopedEnvVars[scopedKey];
+      }
+      if (Object.prototype.hasOwnProperty.call(scopedProcessEnv, scopedKey)) {
+        scopedProcessEnv[mappedKey] = scopedProcessEnv[scopedKey];
+      }
+    }
+  }
   const enabled = parseBooleanLike(
     botConfig.enabled,
-    parseBooleanLike(envVars?.WECOM_BOT_ENABLED, parseBooleanLike(processEnv?.WECOM_BOT_ENABLED, false)),
+    parseBooleanLike(scopedEnvVars?.WECOM_BOT_ENABLED, parseBooleanLike(scopedProcessEnv?.WECOM_BOT_ENABLED, false)),
   );
   const token = pickFirstNonEmptyString(
     botConfig.token,
-    envVars?.WECOM_BOT_TOKEN,
-    processEnv?.WECOM_BOT_TOKEN,
+    botConfig.callbackToken,
+    scopedEnvVars?.WECOM_BOT_TOKEN,
+    scopedProcessEnv?.WECOM_BOT_TOKEN,
   );
   const encodingAesKey = pickFirstNonEmptyString(
     botConfig.encodingAesKey,
-    envVars?.WECOM_BOT_ENCODING_AES_KEY,
-    processEnv?.WECOM_BOT_ENCODING_AES_KEY,
+    botConfig.callbackAesKey,
+    scopedEnvVars?.WECOM_BOT_ENCODING_AES_KEY,
+    scopedProcessEnv?.WECOM_BOT_ENCODING_AES_KEY,
   );
   const webhookPath = pickFirstNonEmptyString(
     botConfig.webhookPath,
-    envVars?.WECOM_BOT_WEBHOOK_PATH,
-    processEnv?.WECOM_BOT_WEBHOOK_PATH,
+    scopedEnvVars?.WECOM_BOT_WEBHOOK_PATH,
+    scopedProcessEnv?.WECOM_BOT_WEBHOOK_PATH,
     "/wecom/bot/callback",
   );
   const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj ?? {}, key);
   const placeholderText = (() => {
     if (hasOwn(botConfig, "placeholderText")) return String(botConfig.placeholderText ?? "");
-    if (hasOwn(envVars, "WECOM_BOT_PLACEHOLDER_TEXT")) return String(envVars.WECOM_BOT_PLACEHOLDER_TEXT ?? "");
-    if (hasOwn(processEnv, "WECOM_BOT_PLACEHOLDER_TEXT"))
-      return String(processEnv.WECOM_BOT_PLACEHOLDER_TEXT ?? "");
+    if (hasOwn(scopedEnvVars, "WECOM_BOT_PLACEHOLDER_TEXT")) return String(scopedEnvVars.WECOM_BOT_PLACEHOLDER_TEXT ?? "");
+    if (hasOwn(scopedProcessEnv, "WECOM_BOT_PLACEHOLDER_TEXT"))
+      return String(scopedProcessEnv.WECOM_BOT_PLACEHOLDER_TEXT ?? "");
     return "消息已收到，正在处理中，请稍等片刻。";
   })();
   const streamExpireMs = asBoundedPositiveInteger(
     botConfig.streamExpireMs ??
-      envVars?.WECOM_BOT_STREAM_EXPIRE_MS ??
-      processEnv?.WECOM_BOT_STREAM_EXPIRE_MS,
+      scopedEnvVars?.WECOM_BOT_STREAM_EXPIRE_MS ??
+      scopedProcessEnv?.WECOM_BOT_STREAM_EXPIRE_MS,
     10 * 60 * 1000,
     30 * 1000,
     60 * 60 * 1000,
   );
   const replyTimeoutMs = asBoundedPositiveInteger(
     botConfig.replyTimeoutMs ??
-      envVars?.WECOM_BOT_REPLY_TIMEOUT_MS ??
-      processEnv?.WECOM_BOT_REPLY_TIMEOUT_MS ??
-      envVars?.WECOM_REPLY_TIMEOUT_MS ??
-      processEnv?.WECOM_REPLY_TIMEOUT_MS,
+      scopedEnvVars?.WECOM_BOT_REPLY_TIMEOUT_MS ??
+      scopedProcessEnv?.WECOM_BOT_REPLY_TIMEOUT_MS ??
+      scopedEnvVars?.WECOM_REPLY_TIMEOUT_MS ??
+      scopedProcessEnv?.WECOM_REPLY_TIMEOUT_MS,
     90000,
     15000,
     10 * 60 * 1000,
   );
   const lateReplyWatchMs = asBoundedPositiveInteger(
     botConfig.lateReplyWatchMs ??
-      envVars?.WECOM_BOT_LATE_REPLY_WATCH_MS ??
-      processEnv?.WECOM_BOT_LATE_REPLY_WATCH_MS ??
-      envVars?.WECOM_LATE_REPLY_WATCH_MS ??
-      processEnv?.WECOM_LATE_REPLY_WATCH_MS,
+      scopedEnvVars?.WECOM_BOT_LATE_REPLY_WATCH_MS ??
+      scopedProcessEnv?.WECOM_BOT_LATE_REPLY_WATCH_MS ??
+      scopedEnvVars?.WECOM_LATE_REPLY_WATCH_MS ??
+      scopedProcessEnv?.WECOM_LATE_REPLY_WATCH_MS,
     180000,
     30000,
     10 * 60 * 1000,
   );
   const lateReplyPollMs = asBoundedPositiveInteger(
     botConfig.lateReplyPollMs ??
-      envVars?.WECOM_BOT_LATE_REPLY_POLL_MS ??
-      processEnv?.WECOM_BOT_LATE_REPLY_POLL_MS ??
-      envVars?.WECOM_LATE_REPLY_POLL_MS ??
-      processEnv?.WECOM_LATE_REPLY_POLL_MS,
+      scopedEnvVars?.WECOM_BOT_LATE_REPLY_POLL_MS ??
+      scopedProcessEnv?.WECOM_BOT_LATE_REPLY_POLL_MS ??
+      scopedEnvVars?.WECOM_LATE_REPLY_POLL_MS ??
+      scopedProcessEnv?.WECOM_LATE_REPLY_POLL_MS,
     2000,
     500,
     10000,
   );
 
   return {
+    accountId: normalizedAccountId,
     enabled,
     token: token || undefined,
     encodingAesKey: encodingAesKey || undefined,
@@ -1161,6 +1211,82 @@ export function resolveWecomBotModeConfig({
     lateReplyWatchMs,
     lateReplyPollMs,
   };
+}
+
+export function resolveWecomBotModeAccountsConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const accountIds = new Set(["default"]);
+  const channelAccounts = channelConfig?.accounts;
+  if (channelAccounts && typeof channelAccounts === "object") {
+    for (const accountId of Object.keys(channelAccounts)) {
+      accountIds.add(normalizeAccountIdForEnv(accountId));
+    }
+  }
+
+  const scopedBotIdRegex = /^WECOM_([A-Z0-9]+)_BOT_(ENABLED|TOKEN|ENCODING_AES_KEY|WEBHOOK_PATH|PLACEHOLDER_TEXT|STREAM_EXPIRE_MS|REPLY_TIMEOUT_MS|LATE_REPLY_WATCH_MS|LATE_REPLY_POLL_MS|PROXY)$/;
+  const collectScopedIds = (obj) => {
+    if (!obj || typeof obj !== "object") return;
+    for (const key of Object.keys(obj)) {
+      const match = key.match(scopedBotIdRegex);
+      if (!match) continue;
+      const candidate = String(match[1] ?? "").trim().toLowerCase();
+      if (candidate) accountIds.add(candidate);
+    }
+  };
+  collectScopedIds(envVars);
+  collectScopedIds(processEnv);
+
+  const hasScopedBotEnv = (accountId) => {
+    const normalizedAccountId = normalizeAccountIdForEnv(accountId);
+    if (normalizedAccountId === "default") return false;
+    const prefix = `WECOM_${normalizedAccountId.toUpperCase()}_BOT_`;
+    const hasIn = (obj) =>
+      Boolean(
+        obj &&
+          typeof obj === "object" &&
+          Object.keys(obj).some((key) => String(key ?? "").startsWith(prefix)),
+      );
+    return hasIn(envVars) || hasIn(processEnv);
+  };
+
+  const ordered = Array.from(accountIds).sort((a, b) => {
+    if (a === "default" && b !== "default") return -1;
+    if (a !== "default" && b === "default") return 1;
+    return a.localeCompare(b);
+  });
+
+  const botConfigs = [];
+  for (const accountId of ordered) {
+    const resolved = resolveWecomBotModeConfig({
+      channelConfig,
+      envVars,
+      processEnv,
+      accountId,
+    });
+    const normalizedAccountId = normalizeAccountIdForEnv(accountId);
+    const accountCfg =
+      normalizedAccountId === "default"
+        ? channelConfig
+        : channelConfig?.accounts && typeof channelConfig.accounts === "object"
+          ? channelConfig.accounts[normalizedAccountId]
+          : null;
+    const hasBotConfigObject = Boolean(accountCfg && typeof accountCfg === "object" && accountCfg.bot && typeof accountCfg.bot === "object");
+    if (
+      normalizedAccountId !== "default" &&
+      !hasBotConfigObject &&
+      !hasScopedBotEnv(normalizedAccountId) &&
+      resolved.enabled !== true &&
+      !resolved.token &&
+      !resolved.encodingAesKey
+    ) {
+      continue;
+    }
+    botConfigs.push(resolved);
+  }
+  return botConfigs;
 }
 
 function readVoiceEnv(envVars, processEnv, suffix) {

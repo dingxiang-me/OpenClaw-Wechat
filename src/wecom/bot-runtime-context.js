@@ -8,6 +8,7 @@ export async function prepareWecomBotRuntimeContext({
   api,
   runtime,
   cfg,
+  accountId = "default",
   baseSessionId,
   fromUser,
   chatId,
@@ -34,7 +35,7 @@ export async function prepareWecomBotRuntimeContext({
     runtime,
     cfg,
     channel: "wecom",
-    accountId: "bot",
+    accountId,
     sessionKey: baseSessionId,
     fromUser,
     chatId,
@@ -83,6 +84,7 @@ export async function prepareWecomBotRuntimeContext({
       commandBody,
       fromAddress,
       sessionId,
+      accountId,
       isGroupChat,
       chatId,
       fromUser,
@@ -100,7 +102,7 @@ export async function prepareWecomBotRuntimeContext({
       sessionKey: sessionId,
       channel: "wecom",
       to: fromUser,
-      accountId: "bot",
+      accountId,
     },
     onRecordError: (err) => {
       api?.logger?.warn?.(`wecom(bot): failed to record session: ${err}`);
@@ -109,7 +111,7 @@ export async function prepareWecomBotRuntimeContext({
 
   runtime.channel.activity.record({
     channel: "wecom",
-    accountId: "bot",
+    accountId,
     direction: "inbound",
   });
 

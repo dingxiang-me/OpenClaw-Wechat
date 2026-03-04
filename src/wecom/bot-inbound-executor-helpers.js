@@ -48,11 +48,15 @@ export function assertWecomBotInboundFlowDeps({ api, ...deps } = {}) {
 
 export function createWecomBotInboundFlowState({
   api,
+  accountId = "default",
   fromUser,
   content,
   imageUrls,
   fileUrl,
   fileName,
+  voiceUrl,
+  voiceMediaId,
+  voiceContentType,
   quote,
   buildWecomBotSessionId,
   resolveWecomBotConfig,
@@ -62,23 +66,29 @@ export function createWecomBotInboundFlowState({
 } = {}) {
   const runtime = api.runtime;
   const cfg = api.config;
-  const baseSessionId = buildWecomBotSessionId(fromUser);
+  const normalizedAccountId = String(accountId ?? "default").trim().toLowerCase() || "default";
+  const baseSessionId = buildWecomBotSessionId(fromUser, normalizedAccountId);
   const state = {
     runtime,
     cfg,
+    accountId: normalizedAccountId,
     baseSessionId,
     sessionId: baseSessionId,
     routedAgentId: "",
-    fromAddress: `wecom-bot:${fromUser}`,
+    fromAddress:
+      normalizedAccountId === "default" ? `wecom-bot:${fromUser}` : `wecom-bot:${normalizedAccountId}:${fromUser}`,
     normalizedFromUser: String(fromUser ?? "").trim().toLowerCase(),
     originalContent: String(content ?? ""),
     commandBody: String(content ?? ""),
     dispatchStartedAt: Date.now(),
     tempPathsToCleanup: [],
-    botModeConfig: resolveWecomBotConfig(api),
-    botProxyUrl: resolveWecomBotProxyConfig(api),
+    botModeConfig: resolveWecomBotConfig(api, normalizedAccountId),
+    botProxyUrl: resolveWecomBotProxyConfig(api, normalizedAccountId),
     normalizedFileUrl: String(fileUrl ?? "").trim(),
     normalizedFileName: String(fileName ?? "").trim(),
+    normalizedVoiceUrl: String(voiceUrl ?? "").trim(),
+    normalizedVoiceMediaId: String(voiceMediaId ?? "").trim(),
+    normalizedVoiceContentType: String(voiceContentType ?? "").trim(),
     normalizedQuote:
       quote && typeof quote === "object"
         ? {
@@ -129,6 +139,7 @@ export function createWecomBotSafeReplyHelpers({
     const result = await deliverBotReplyText({
       api,
       fromUser,
+      accountId: state.accountId,
       sessionId: state.sessionId,
       streamId,
       responseUrl,

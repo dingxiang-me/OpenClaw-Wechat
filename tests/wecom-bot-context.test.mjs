@@ -35,6 +35,7 @@ test("buildWecomBotInboundContextPayload builds group payload with defaults", ()
     commandBody: "cmd",
     fromAddress: "wecom-bot:dingxiang",
     sessionId: "wecom-bot:dingxiang",
+    accountId: "bot",
     isGroupChat: true,
     chatId: "room-1",
     fromUser: "dingxiang",
