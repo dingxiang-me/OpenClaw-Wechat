@@ -1,4 +1,5 @@
 import { createWecomAgentInboundDispatcher } from "./agent-inbound-dispatch.js";
+import { markWecomInboundActivity } from "./channel-status-state.js";
 
 export function createWecomAgentWebhookHandler({
   api,
@@ -142,6 +143,10 @@ export function createWecomAgentWebhookHandler({
         api.logger.warn?.("wecom: inbound message missing MsgType, dropped");
         return;
       }
+      markWecomInboundActivity({
+        accountId: matchedAccount.accountId,
+        timestamp: msgObj?.CreateTime,
+      });
 
       const chatId = inbound.chatId || null;
       const isGroupChat = Boolean(chatId);

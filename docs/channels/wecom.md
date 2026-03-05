@@ -6,6 +6,13 @@ summary: "OpenClaw-Wechat WeCom channel plugin"
 
 This channel integrates OpenClaw with WeCom (企业微信) internal apps.
 
+## Major Update: Visual Config in Control UI
+
+- You can now edit WeCom channel config directly in `Channels -> WeCom` (Control UI).
+- WeCom UI hints are localized and sensitive fields are marked.
+- Runtime status is clearer: `Connected` and default account display are no longer ambiguous.
+- `Last inbound` updates automatically after callbacks; `n/a` before first inbound after a restart is expected.
+
 ## Status
 
 - Webhook verification: supported (requires Token + EncodingAESKey)

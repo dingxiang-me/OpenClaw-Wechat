@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createWecomChannelPlugin } from "../src/wecom/channel-plugin.js";
+import {
+  __resetWecomInboundActivityForTests,
+  markWecomInboundActivity,
+} from "../src/wecom/channel-status-state.js";
 
 function createPluginHarness(overrides = {}) {
   const calls = {
@@ -76,4 +80,37 @@ test("channel plugin resolveTarget validates target", () => {
   const { plugin } = createPluginHarness();
   const fail = plugin.outbound.resolveTarget({ to: "" });
   assert.equal(fail.ok, false);
+});
+
+test("channel plugin status localizes default account name and computes connected", () => {
+  __resetWecomInboundActivityForTests();
+  const { plugin } = createPluginHarness();
+  const account = plugin.config.resolveAccount({}, "default");
+  const snapshot = plugin.status.buildAccountSnapshot({
+    account,
+    cfg: { channels: { wecom: {} } },
+    runtime: {},
+  });
+  assert.equal(snapshot.accountId, "default");
+  assert.equal(snapshot.name, "默认账号");
+  assert.equal(snapshot.connected, true);
+
+  const summary = plugin.status.buildChannelSummary({ snapshot });
+  assert.equal(summary.connected, true);
+});
+
+test("channel plugin status exposes last inbound timestamp from webhook activity", () => {
+  __resetWecomInboundActivityForTests();
+  markWecomInboundActivity({ accountId: "default", timestamp: 1700000000 });
+  const { plugin } = createPluginHarness();
+  const account = plugin.config.resolveAccount({}, "default");
+  const snapshot = plugin.status.buildAccountSnapshot({
+    account,
+    cfg: { channels: { wecom: {} } },
+    runtime: {},
+  });
+  assert.ok(snapshot.lastInboundAt);
+
+  const summary = plugin.status.buildChannelSummary({ snapshot });
+  assert.equal(summary.lastInbound, snapshot.lastInboundAt);
 });

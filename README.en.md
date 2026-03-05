@@ -9,6 +9,7 @@ OpenClaw-Wechat is an OpenClaw channel plugin for Enterprise WeChat (WeCom), wit
 
 ## Table of Contents
 
+- [Major Update (v1.8.0)](#major-update-v180)
 - [Highlights](#highlights)
 - [Mode Comparison](#mode-comparison)
 - [5-Minute Quick Start](#5-minute-quick-start)
@@ -22,6 +23,26 @@ OpenClaw-Wechat is an OpenClaw channel plugin for Enterprise WeChat (WeCom), wit
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [FAQ](#faq)
+
+## Major Update (v1.8.0)
+
+This release is a major operations-focused upgrade: **WeCom now supports visual configuration in Control UI**, so you no longer need to rely on manual JSON edits only.
+
+### Visual config in Control UI
+
+| Item | Status | Notes |
+|---|---|---|
+| WeCom config form | ✅ | `channels.wecom` can be edited/saved directly from UI |
+| Localized labels | ✅ | Common fields are now clearly labeled in Chinese for ops teams |
+| Sensitive-field hints | ✅ | secret/token/aesKey fields are marked as sensitive |
+| Runtime status clarity | ✅ | `Connected` is no longer stuck at `n/a`; default account display name is localized |
+| Inbound activity tracking | ✅ | `Last inbound` is updated after webhook callbacks (`n/a` before first inbound after restart is expected) |
+
+### Practical impact
+
+- Configure WeCom directly in `Channels -> WeCom` without hand-editing large config files.
+- Better readability for day-to-day ops and handover.
+- More accurate runtime status display reduces false alarm on “plugin not working”.
 
 ## Highlights
 

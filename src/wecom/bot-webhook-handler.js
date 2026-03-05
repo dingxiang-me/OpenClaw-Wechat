@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { createWecomBotParsedDispatcher } from "./bot-webhook-dispatch.js";
+import { markWecomInboundActivity } from "./channel-status-state.js";
 
 export function createWecomBotWebhookHandler({
   api,
@@ -167,6 +168,10 @@ export function createWecomBotWebhookHandler({
       const parsed = parseWecomBotInboundMessage(incomingPayload);
       if (parsed && typeof parsed === "object") {
         parsed.accountId = String(matchedBotConfig.accountId ?? "default").trim().toLowerCase() || "default";
+        markWecomInboundActivity({
+          accountId: parsed.accountId,
+          timestamp: incomingPayload?.create_time ?? incomingPayload?.CreateTime,
+        });
       }
       api.logger.info?.(
         `wecom(bot): inbound ${describeWecomBotParsedMessage(parsed)} account=${matchedBotConfig.accountId || "default"}`,

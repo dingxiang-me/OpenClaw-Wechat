@@ -4,7 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-03-06
+
 ### Added
+- 重大更新：支持 WeCom 后台可视化配置（Control UI 可直接编辑 `channels.wecom`）
+- 新增 WeCom 渠道配置 schema 暴露能力，后台配置页可稳定识别并渲染 WeCom 表单
+- 新增 WeCom 配置项中文化 UI hints（含敏感字段标记与常用字段说明）
+- 新增 WeCom 入站活动状态缓存，用于渠道状态中的 `lastInbound` 可视化展示
 - 新增 Bot 卡片回包能力：`channels.wecom.bot.card`（支持 `markdown` / `template_card`）
 - 新增卡片回包分层开关：`bot.card.responseUrlEnabled`、`bot.card.webhookBotEnabled`
 - 新增 `outbound-bot-card` 模块与回归测试，统一卡片 payload 构建与长度截断
@@ -42,6 +48,9 @@ All notable changes to this project will be documented in this file.
 - 新增 Bot 自检本地回调健康诊断：可识别 `html-fallback/route-not-found/gateway-unreachable` 并输出修复提示
 
 ### Changed
+- 渠道状态展示增强：`Connected` 默认按 `running && configured` 计算，不再长期显示 `n/a`
+- 账号展示增强：默认账户显示名统一为“默认账号”，避免 UI 中仅显示 `default`
+- Agent/Bot webhook 入站链路统一写入活动时间戳，`Last inbound` 展示准确性提升
 - Bot 回包链路增强：当无媒体且卡片开启时，`response_url` / `webhook_bot` 优先发送卡片并自动降级文本
 - 多账号默认回调路径自动分配：
   - Agent：非 default 账户缺省为 `/wecom/<accountId>/callback`

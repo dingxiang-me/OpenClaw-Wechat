@@ -1,7 +1,106 @@
+import { wecomChannelConfigSchema, wecomChannelConfigUiHints } from "./channel-config-schema.js";
+import {
+  getWecomChannelInboundActivity,
+  getWecomInboundActivity,
+} from "./channel-status-state.js";
+
 function assertFunction(name, fn) {
   if (typeof fn !== "function") {
     throw new Error(`createWecomChannelPlugin: ${name} is required`);
   }
+}
+
+function readString(value) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed || "";
+}
+
+function readNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function resolveBotCallbackConfig(cfg, accountId = "default") {
+  const normalizedAccountId = readString(accountId).toLowerCase() || "default";
+  const channelConfig = cfg?.channels?.wecom;
+  const accountConfig = channelConfig?.accounts?.[normalizedAccountId];
+  const accountBot = accountConfig?.bot;
+  const channelBot = channelConfig?.bot;
+
+  const enabled =
+    accountBot?.enabled ??
+    channelBot?.enabled ??
+    false;
+  const token = readString(
+    accountBot?.token ??
+      accountBot?.callbackToken ??
+      channelBot?.token ??
+      channelBot?.callbackToken ??
+      channelConfig?.token ??
+      channelConfig?.callbackToken,
+  );
+  const aesKey = readString(
+    accountBot?.encodingAesKey ??
+      accountBot?.callbackAesKey ??
+      channelBot?.encodingAesKey ??
+      channelBot?.callbackAesKey ??
+      channelConfig?.encodingAesKey ??
+      channelConfig?.callbackAesKey,
+  );
+  const webhookPath = readString(
+    accountBot?.webhookPath ?? channelBot?.webhookPath,
+  );
+
+  return {
+    enabled: enabled === true,
+    token,
+    aesKey,
+    webhookPath,
+  };
+}
+
+function hasConfiguredBotCallback(cfg, accountId = "default") {
+  const bot = resolveBotCallbackConfig(cfg, accountId);
+  return bot.enabled && Boolean(bot.token) && Boolean(bot.aesKey);
+}
+
+function hasConfiguredAgentCredentials(account) {
+  return Boolean(
+    readString(account?.corpId) &&
+      readString(account?.corpSecret) &&
+      readNumber(account?.agentId),
+  );
+}
+
+function buildWecomAccountSnapshot(account, cfg, runtime = {}) {
+  const accountId = readString(account?.accountId).toLowerCase() || "default";
+  const agentConfigured = hasConfiguredAgentCredentials(account);
+  const botConfig = resolveBotCallbackConfig(cfg, accountId);
+  const botConfigured = hasConfiguredBotCallback(cfg, accountId);
+  const configured = agentConfigured || botConfigured;
+  const enabled = account?.enabled !== false;
+  const inboundActivity = getWecomInboundActivity(accountId);
+  const mode = agentConfigured && botConfigured ? "agent+bot" : botConfigured ? "bot" : "agent";
+  const running = runtime?.running ?? (enabled && configured);
+  const connected =
+    runtime?.connected ??
+    inboundActivity?.connected ??
+    (running && configured);
+  const lastInboundAt = readString(runtime?.lastInboundAt ?? runtime?.lastInbound) || inboundActivity?.lastInboundAt || null;
+  const localizedName = accountId === "default" ? "默认账号" : accountId;
+  return {
+    ...runtime,
+    accountId,
+    name: readString(account?.name) || localizedName,
+    displayName: readString(account?.name) || localizedName,
+    enabled,
+    configured,
+    running,
+    connected,
+    lastInboundAt,
+    mode,
+    webhookPath: readString(account?.webhookPath) || botConfig.webhookPath || runtime?.webhookPath || undefined,
+  };
 }
 
 export function createWecomChannelPlugin({
@@ -29,11 +128,15 @@ export function createWecomChannelPlugin({
     id: "wecom",
     meta: {
       id: "wecom",
-      label: "WeCom",
-      selectionLabel: "WeCom (企业微信自建应用)",
+      label: "企业微信 WeCom",
+      selectionLabel: "企业微信 WeCom（自建应用/Bot）",
       docsPath: "/channels/wecom",
-      blurb: "Enterprise WeChat internal app via callback + send API.",
+      blurb: "企业微信消息通道（自建应用回调 + Bot 回调 + 发送 API）。",
       aliases: ["wework", "qiwei", "wxwork"],
+    },
+    configSchema: {
+      schema: wecomChannelConfigSchema,
+      uiHints: wecomChannelConfigUiHints,
     },
     capabilities: {
       chatTypes: ["direct", "group"],
@@ -44,11 +147,34 @@ export function createWecomChannelPlugin({
       markdown: true,
     },
     config: {
-      listAccountIds: (cfg) => listWecomAccountIds({ config: cfg }),
+      listAccountIds: (cfg) => {
+        const accountIds = listWecomAccountIds({ config: cfg });
+        if (accountIds.length > 0) return accountIds;
+        return hasConfiguredBotCallback(cfg, "default") ? ["default"] : [];
+      },
       resolveAccount: (cfg, accountId) =>
         (getWecomConfig({ config: cfg }, accountId ?? "default") ?? {
           accountId: accountId ?? "default",
         }),
+      isConfigured: (account, cfg) =>
+        hasConfiguredAgentCredentials(account) || hasConfiguredBotCallback(cfg, account?.accountId ?? "default"),
+      describeAccount: (account, cfg) => buildWecomAccountSnapshot(account, cfg),
+    },
+    status: {
+      buildAccountSnapshot: ({ account, cfg, runtime }) =>
+        buildWecomAccountSnapshot(account, cfg, runtime),
+      buildChannelSummary: ({ snapshot }) => ({
+        configured: snapshot?.configured ?? false,
+        running: snapshot?.running ?? false,
+        connected:
+          snapshot?.connected ??
+          (snapshot?.running && snapshot?.configured) ??
+          null,
+        lastInbound:
+          readString(snapshot?.lastInboundAt ?? snapshot?.lastInbound) ||
+          getWecomChannelInboundActivity([snapshot?.accountId]).lastInboundAt ||
+          null,
+      }),
     },
     outbound: {
       deliveryMode: "direct",
