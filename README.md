@@ -299,6 +299,9 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | `lateReplyPollMs` | integer | `2000` | Bot 异步补发轮询间隔（500ms~10s） |
 | `card` | object | 见下方 | Bot 卡片回包策略（`response_url` / `webhook_bot`） |
 
+> 重要限制：企业微信官方 Bot 在群聊里通常仅对 `@机器人` 消息触发回调。  
+> 因此 Bot 模式下即使配置 `groupChat.triggerMode=direct/keyword`，也会按 `mention` 处理（插件会输出告警）。
+
 #### Bot 卡片配置（`channels.wecom.bot.card`）
 
 | 键 | 类型 | 默认 | 说明 |
@@ -340,7 +343,7 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | 命令白名单 | `commands.enabled` + `commands.allowlist` | 限制 `/` 指令 |
 | 私聊策略 | `dm.mode` + `dm.allowFrom` + `dm.rejectMessage` | 控制私聊开放/白名单/拒绝 |
 | 事件策略 | `events.enabled` + `events.enterAgentWelcomeEnabled` + `events.enterAgentWelcomeText` | 控制事件处理与 enter_agent 欢迎语 |
-| 群聊触发 | `groupChat.enabled` + `triggerMode` + `mentionPatterns` + `triggerKeywords` | 控制群消息触发条件 |
+| 群聊触发 | `groupChat.enabled` + `triggerMode` + `mentionPatterns` + `triggerKeywords` | 控制群消息触发条件（自建应用支持 `direct/mention/keyword`；Bot 模式按平台限制固定 `mention`） |
 | 动态路由 | `dynamicAgent.*`（兼容 `dynamicAgents.*`、`dm.createAgentOnFirstMessage`） | 动态 Agent + workspace bootstrap 播种 |
 
 ### 吞吐与稳定性
@@ -633,10 +636,10 @@ npm run wecom:bot:selfcheck -- --all-accounts
 
 ### Q6：自建应用群聊怎么开？为什么群里不 @ 就不触发？
 先区分两种通道能力：
-1. **群机器人（Webhook Bot）**：可直接添加到企微群，天然适合群聊收发。
+1. **群机器人（Webhook Bot）**：可直接添加到企微群，天然适合群聊收发；但群聊通常仅 `@机器人` 时才会回调。
 2. **自建应用（Agent 回调）**：插件支持处理 `ChatId` 群消息；但是否能收到“普通群消息”取决于企业微信实际下发能力（很多租户里普通群只能加机器人，无法像成员一样加自建应用）。
 
-如果你的场景是“普通群里直接聊天并稳定触发”，优先用 **Webhook Bot 模式**。  
+如果你的场景是“普通群里稳定对话”，优先用 **Webhook Bot 模式**（注意通常仍需 `@机器人` 才触发）。  
 如果你确认企业微信会把群消息回调到自建应用（日志里有 `chatId=...`），再配置触发模式：
 
 ```json

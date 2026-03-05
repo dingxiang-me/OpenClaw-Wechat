@@ -4,6 +4,45 @@ function assertFunction(name, value) {
   }
 }
 
+const UNSUPPORTED_BOT_GROUP_TRIGGER_WARNED = new Set();
+
+function warnUnsupportedBotGroupTriggerOnce(triggerMode, logger) {
+  const mode = String(triggerMode ?? "").trim().toLowerCase();
+  if (!mode || UNSUPPORTED_BOT_GROUP_TRIGGER_WARNED.has(mode)) return;
+  UNSUPPORTED_BOT_GROUP_TRIGGER_WARNED.add(mode);
+  logger?.warn?.(
+    `wecom(bot): groupChat.triggerMode=${mode} is not supported by WeCom Bot group callbacks; forcing mention mode (@).`,
+  );
+}
+
+export function normalizeWecomBotGroupChatPolicy(groupChatPolicy = {}, logger) {
+  const policy = groupChatPolicy && typeof groupChatPolicy === "object" ? groupChatPolicy : {};
+  const enabled = policy.enabled !== false;
+  const mentionPatterns =
+    Array.isArray(policy.mentionPatterns) && policy.mentionPatterns.length > 0 ? policy.mentionPatterns : ["@"];
+
+  if (!enabled) {
+    return {
+      ...policy,
+      enabled: false,
+      mentionPatterns,
+    };
+  }
+
+  const triggerMode = String(policy.triggerMode ?? "").trim().toLowerCase();
+  if (triggerMode && triggerMode !== "mention") {
+    warnUnsupportedBotGroupTriggerOnce(triggerMode, logger);
+  }
+
+  return {
+    ...policy,
+    enabled: true,
+    triggerMode: "mention",
+    requireMention: true,
+    mentionPatterns,
+  };
+}
+
 export function assertWecomBotInboundFlowDeps({ api, ...deps } = {}) {
   if (!api || typeof api !== "object") {
     throw new Error("executeWecomBotInboundFlow: api is required");
@@ -104,7 +143,7 @@ export function createWecomBotInboundFlowState({
           .filter(Boolean),
       ),
     ),
-    groupChatPolicy: resolveWecomGroupChatPolicy(api),
+    groupChatPolicy: normalizeWecomBotGroupChatPolicy(resolveWecomGroupChatPolicy(api), api?.logger),
     dynamicAgentPolicy: resolveWecomDynamicAgentPolicy(api),
     isAdminUser: false,
   };

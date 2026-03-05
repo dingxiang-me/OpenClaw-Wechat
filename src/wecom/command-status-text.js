@@ -180,11 +180,7 @@ export function buildBotStatusText({
   const dmPolicyLine = buildDmPolicyStatusLine(dmPolicy);
   const eventPolicyLine = buildEventPolicyStatusLine(eventPolicy);
   const groupPolicyLine = groupPolicy.enabled
-    ? groupPolicy.triggerMode === "mention"
-      ? "✅ 群聊触发：仅 @ 命中后处理"
-      : groupPolicy.triggerMode === "keyword"
-        ? `✅ 群聊触发：关键词模式（${(groupPolicy.triggerKeywords || []).join(" / ") || "未配置关键词"}）`
-        : "✅ 群聊触发：无需 @（全部处理）"
+    ? "✅ 群聊触发：仅 @ 机器人后处理（企业微信 Bot 平台限制）"
     : "⚠️ 群聊处理未启用";
   const fallbackPolicyLine = deliveryFallbackPolicy.enabled
     ? `✅ 回包兜底链路已启用（${deliveryFallbackPolicy.order.join(" > ")}）`
@@ -236,6 +232,8 @@ export function buildWecomBotHelpText() {
 /new - 新建会话（兼容命令，等价于 /reset）
 /status - 查看系统状态
 /clear - 重置会话（等价于 /reset）
+
+说明：企业微信 Bot 群聊通常仅对 @ 机器人消息触发回调。
 
 直接发送消息即可与 AI 对话。`;
 }

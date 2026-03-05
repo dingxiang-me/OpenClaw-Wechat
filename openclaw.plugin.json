@@ -1,7 +1,7 @@
 {
   "id": "openclaw-wechat",
   "name": "OpenClaw-Wechat",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "channels": [
     "wecom"

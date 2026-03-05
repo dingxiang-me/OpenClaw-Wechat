@@ -19,7 +19,7 @@ This channel integrates OpenClaw with WeCom (企业微信) internal apps.
 - Bot card replies: supported (`channels.wecom.bot.card`, `markdown/template_card`)
 - Direct-message policy: supported (`channels.wecom.dm.mode=open|allowlist|deny`, account-level override via `accounts.<id>.dm`)
 - Event handling: supported (`channels.wecom.events.*`, supports `enter_agent` welcome reply)
-- Group trigger mode: `direct` / `mention` / `keyword` (`channels.wecom.groupChat.triggerMode`)
+- Group trigger mode: Agent callback supports `direct` / `mention` / `keyword`; Bot mode is effectively `mention` (WeCom platform callback constraint)
 - Dynamic agent route mode: `deterministic` / `mapping` / `hybrid` (`channels.wecom.dynamicAgent.mode`)
 - Dynamic workspace seeding: supported via `channels.wecom.dynamicAgent.workspaceTemplate`
 - Session queue / stream manager: optional (`channels.wecom.stream.manager`)
@@ -40,7 +40,7 @@ Named webhook targets (optional):
 
 WeCom has two different integration shapes:
 
-1. **Webhook Bot**: can be added directly to regular group chats.
+1. **Webhook Bot**: can be added directly to regular group chats, but callbacks are typically triggered only when the bot is mentioned (`@机器人`).
 2. **Self-built App callback**: plugin supports group processing when callback payload contains `ChatId`.
 
 To enable direct group trigger (`triggerMode=direct`) for self-built app callback, ensure:
@@ -52,6 +52,8 @@ To enable direct group trigger (`triggerMode=direct`) for self-built app callbac
 
 If logs never show `chatId`, WeCom is not delivering group messages to this callback route.  
 In that case, use **Webhook Bot mode** for regular group chat scenarios.
+
+Note: In Bot mode, `groupChat.triggerMode=direct/keyword` is normalized to `mention` by the plugin to avoid misleading config.
 
 ## Selfcheck
 
@@ -165,7 +167,7 @@ All new switches are default-off for compatibility.
 }
 ```
 
-## P2 Routing Config (Recommended)
+## P2 Routing Config (Recommended, Agent callback)
 
 ```json
 {

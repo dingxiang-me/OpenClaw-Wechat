@@ -70,5 +70,6 @@ test("buildWecomBotStatusText renders bot webhook and features", () => {
   assert.match(text, /企业微信 AI 机器人/);
   assert.match(text, /Bot Webhook：\/wecom\/bot\/callback/);
   assert.match(text, /回包兜底链路/);
+  assert.match(text, /企业微信 Bot 平台限制/);
   assert.match(text, /微信插件入口联系人：Bot 模式通常不显示/);
 });

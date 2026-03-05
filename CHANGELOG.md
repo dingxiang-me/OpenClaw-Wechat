@@ -52,6 +52,17 @@ All notable changes to this project will be documented in this file.
 - 远端 E2E 兼容增强：`test:e2e:remote` 支持 `WECOM_E2E_*` 与 legacy `E2E_WECOM_*` 两套环境变量
 - 语法检查范围增强：`test:syntax` 从仅 `src` 扩展到 `src + scripts + tests`，降低脚本/测试回归漏检风险
 
+## [1.7.2] - 2026-03-05
+
+### Changed
+- Bot 群聊触发策略收紧：在企业微信官方 Bot 模式下，`groupChat.triggerMode=direct/keyword` 会自动规范为 `mention` 并输出告警，避免“配置可写但平台不回调”的误导
+- Bot `/status` 与 `/help` 文案增强：明确“群聊通常仅 @ 机器人消息触发（平台限制）”
+- 文档更新：README 与 `docs/channels/wecom.md` 明确 Bot 群聊触发限制与配置降级行为
+
+### Added
+- 新增回归测试 `tests/wecom-bot-inbound-executor-helpers.test.mjs`，覆盖 Bot 群聊策略规范化
+- 更新命令处理测试，覆盖 Bot 状态文案中的平台限制提示
+
 ## [1.7.1] - 2026-03-05
 
 ### Added
