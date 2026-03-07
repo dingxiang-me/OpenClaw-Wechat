@@ -197,6 +197,11 @@ Bot E2E (signed/encrypted callback + stream refresh):
 npm run wecom:bot:selfcheck
 ```
 
+Thinking mode:
+
+- Bot replies now recognize `<think>...</think>` / `<thinking>...</thinking>` / `<thought>...</thought>` and send the reasoning via native `thinking_content`.
+- Think tags inside fenced code blocks and inline code are ignored.
+
 Remote matrix E2E (against public callback URLs):
 
 ```bash

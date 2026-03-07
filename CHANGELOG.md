@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.5] - 2026-03-08
+
+### Added
+- 新增 Bot `thinking_content` 支持：当模型输出包含 `<think>` / `<thinking>` / `<thought>` 标签时，插件会自动拆分正文与思考内容，并通过企业微信 Bot 原生 `thinking_content` 字段展示折叠思考区
+- 新增 `thinking-parser` 与回归测试，覆盖闭合标签、未闭合标签和代码块内标签忽略
+
+### Changed
+- Bot block/final 流式状态现在会把思考内容单独写入流状态，不再和可见正文混在一起
+- Bot stream refresh 现在会把 `thinking_content` 一并返回给企业微信客户端
+- Bot block-fallback 在只有思考内容时也能保留思考区，不会直接丢失
+
+### Fixed
+- 修复 Bot 流式输出中 `<think>` 标签内容被直接混入正文的问题
+
 ## [1.9.4] - 2026-03-08
 
 ### Added

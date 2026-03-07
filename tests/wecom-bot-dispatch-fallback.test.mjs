@@ -19,7 +19,26 @@ test("handleWecomBotPostDispatchFallback sends block fallback text", async () =>
     startLateReplyWatcher: () => false,
   });
   assert.equal(shouldReturn, false);
-  assert.deepEqual(calls, [{ text: "hello block", reason: "block-fallback" }]);
+  assert.deepEqual(calls, [{ text: { text: "hello block", thinkingContent: "" }, reason: "block-fallback" }]);
+});
+
+test("handleWecomBotPostDispatchFallback preserves thinkingContent", async () => {
+  const calls = [];
+  const shouldReturn = await handleWecomBotPostDispatchFallback({
+    api: { logger: { warn() {} } },
+    sessionId: "wecom-bot:u2",
+    dispatchState: { streamFinished: false, blockText: "<think>先想想</think>给答案" },
+    dispatchStartedAt: 1000,
+    tryFinishFromTranscript: async () => false,
+    markdownToWecomText: (text) => String(text),
+    safeDeliverReply: async (payload, reason) => {
+      calls.push({ payload, reason });
+      return true;
+    },
+    startLateReplyWatcher: () => false,
+  });
+  assert.equal(shouldReturn, false);
+  assert.deepEqual(calls, [{ payload: { text: "给答案", thinkingContent: "先想想" }, reason: "block-fallback" }]);
 });
 
 test("handleWecomBotPostDispatchFallback starts watcher when no deliverable text", async () => {

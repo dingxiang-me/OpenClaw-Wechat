@@ -97,6 +97,7 @@ test("dispatchParsed handles stream-refresh and returns encrypted stream payload
   const { dispatcher, state, activeBotConfig } = createDispatcher({
     getBotStream: () => ({
       content: "增量内容",
+      thinkingContent: "思考内容",
       finished: false,
       msgItem: [{ msgtype: "image" }],
       feedbackId: "fb-1",
@@ -124,6 +125,7 @@ test("dispatchParsed handles stream-refresh and returns encrypted stream payload
   assert.equal(state.encryptedPayloads[0].msgtype, "stream");
   assert.equal(state.encryptedPayloads[0].stream.id, "stream-1");
   assert.equal(state.encryptedPayloads[0].stream.content, "增量内容");
+  assert.equal(state.encryptedPayloads[0].stream.thinking_content, "思考内容");
   assert.equal(state.encryptedPayloads[0].stream.finish, false);
   assert.equal(state.encryptedPayloads[0].stream.feedback.id, "fb-1");
   assert.equal(state.encryptedPayloads[0].stream.msg_item.length, 1);

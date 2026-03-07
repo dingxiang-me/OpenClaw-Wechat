@@ -25,6 +25,7 @@ export function createWecomActiveStreamDeliverer({
     streamId,
     sessionId,
     content = "",
+    thinkingContent = "",
     normalizedMediaUrls = [],
     mediaType,
     normalizedText = "",
@@ -78,13 +79,17 @@ export function createWecomActiveStreamDeliverer({
     }
 
     let streamContent = String(content ?? "").trim();
+    const normalizedThinkingContent = String(thinkingContent ?? "").trim();
     if (!streamContent) {
-      streamContent =
-        fallbackMediaUrls.length > 0
-          ? fallbackText
-          : streamMsgItem.length > 0
-            ? "已收到模型返回的媒体结果。"
-            : "";
+      if (fallbackMediaUrls.length > 0) {
+        streamContent = fallbackText;
+      } else if (streamMsgItem.length > 0) {
+        streamContent = "已收到模型返回的媒体结果。";
+      } else if (normalizedThinkingContent) {
+        streamContent = "";
+      } else {
+        streamContent = "";
+      }
     }
     if (!normalizedText && streamMsgItem.length > 0 && fallbackMediaUrls.length === 0 && streamContent === fallbackText) {
       streamContent = "已收到模型返回的媒体结果。";
@@ -93,13 +98,15 @@ export function createWecomActiveStreamDeliverer({
       const suffix = `\n\n媒体链接：\n${fallbackMediaUrls.join("\n")}`;
       streamContent = `${streamContent}${suffix}`.trim();
     }
-    if (!streamContent) {
+    if (!streamContent && !normalizedThinkingContent) {
       streamContent = "已收到模型返回的结果。";
     }
 
-    finishBotStream(targetStreamId, streamContent, {
-      msgItem: streamMsgItem,
-    });
+    const finishOptions = { msgItem: streamMsgItem };
+    if (normalizedThinkingContent) {
+      finishOptions.thinkingContent = normalizedThinkingContent;
+    }
+    finishBotStream(targetStreamId, streamContent, finishOptions);
     return {
       ok: true,
       meta: {

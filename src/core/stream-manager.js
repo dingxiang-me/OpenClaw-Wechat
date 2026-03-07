@@ -7,6 +7,10 @@ function normalizeStreamText(text) {
   return String(text ?? "");
 }
 
+function normalizeThinkingContent(text, maxBytes = DEFAULT_STREAM_MAX_BYTES) {
+  return enforceUtf8ByteLimit(String(text ?? ""), maxBytes);
+}
+
 function enforceUtf8ByteLimit(text, maxBytes = DEFAULT_STREAM_MAX_BYTES) {
   const normalized = normalizeStreamText(text);
   if (!Number.isFinite(maxBytes) || maxBytes <= 0) return normalized;
@@ -73,6 +77,7 @@ export class WecomStreamManager {
     const stream = {
       id,
       content,
+      thinkingContent: "",
       finished: false,
       feedbackId: String(feedbackId ?? "").trim() || null,
       msgItem: [],
@@ -117,7 +122,7 @@ export class WecomStreamManager {
     return queued;
   }
 
-  update(streamId, content, { append = false, finished = false, msgItem } = {}) {
+  update(streamId, content, { append = false, finished = false, msgItem, thinkingContent } = {}) {
     const id = String(streamId ?? "").trim();
     if (!id) return null;
     const existing = this.streams.get(id);
@@ -129,12 +134,15 @@ export class WecomStreamManager {
     if (Array.isArray(msgItem)) {
       existing.msgItem = normalizeStreamMsgItems(msgItem);
     }
+    if (thinkingContent !== undefined) {
+      existing.thinkingContent = normalizeThinkingContent(thinkingContent, this.maxBytes);
+    }
     existing.updatedAt = Date.now();
     this.streams.set(id, existing);
     return existing;
   }
 
-  finish(streamId, content = null, { msgItem } = {}) {
+  finish(streamId, content = null, { msgItem, thinkingContent } = {}) {
     const id = String(streamId ?? "").trim();
     if (!id) return null;
     const existing = this.streams.get(id);
@@ -144,6 +152,9 @@ export class WecomStreamManager {
     }
     if (Array.isArray(msgItem)) {
       existing.msgItem = normalizeStreamMsgItems(msgItem);
+    }
+    if (thinkingContent !== undefined) {
+      existing.thinkingContent = normalizeThinkingContent(thinkingContent, this.maxBytes);
     }
     existing.queuedMedia = [];
     existing.finished = true;

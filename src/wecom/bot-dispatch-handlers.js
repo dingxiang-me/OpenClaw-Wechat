@@ -1,3 +1,5 @@
+import { parseThinkingContent } from "./thinking-parser.js";
+
 function assertFunction(name, value) {
   if (typeof value !== "function") {
     throw new Error(`createWecomBotDispatchHandlers: ${name} is required`);
@@ -41,6 +43,17 @@ export function createWecomBotDispatchHandlers({
 
   const logger = api?.logger;
 
+  const buildThinkingState = (rawText) => {
+    const parsed = parseThinkingContent(rawText);
+    const visibleRaw = String(parsed.visibleContent ?? "").trim();
+    const thinkingRaw = String(parsed.thinkingContent ?? "").trim();
+    return {
+      rawText: String(rawText ?? ""),
+      visibleText: visibleRaw ? markdownToWecomText(visibleRaw).trim() : "",
+      thinkingContent: thinkingRaw ? markdownToWecomText(thinkingRaw).trim() : "",
+    };
+  };
+
   return {
     deliver: async (payload, info) => {
       if (!hasBotStream(streamId)) return;
@@ -57,7 +70,12 @@ export function createWecomBotDispatchHandlers({
         }
         if (!payload?.text) return;
         state.blockText = normalizeWecomBotBlockText(state.blockText, payload.text);
-        updateBotStream(streamId, markdownToWecomText(state.blockText), { append: false, finished: false });
+        const blockState = buildThinkingState(state.blockText);
+        updateBotStream(streamId, blockState.visibleText, {
+          append: false,
+          finished: false,
+          thinkingContent: blockState.thinkingContent,
+        });
         return;
       }
       if (info.kind !== "final") return;
@@ -66,9 +84,15 @@ export function createWecomBotDispatchHandlers({
           state.streamFinished = await safeDeliverReply(`抱歉，请求失败：${payload.text}`, "upstream-failure");
           return;
         }
-        const finalText = markdownToWecomText(payload.text).trim();
-        if (finalText) {
-          state.streamFinished = await safeDeliverReply(finalText, "final");
+        const finalState = buildThinkingState(payload.text);
+        if (finalState.visibleText || finalState.thinkingContent) {
+          state.streamFinished = await safeDeliverReply(
+            {
+              text: finalState.visibleText,
+              thinkingContent: finalState.thinkingContent,
+            },
+            "final",
+          );
           return;
         }
       }

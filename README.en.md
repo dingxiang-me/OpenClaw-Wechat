@@ -55,6 +55,7 @@ This release is a major operations-focused upgrade: **WeCom now supports visual 
 | WeCom inbound message handling | ✅ | text/image/voice/link/file/video (Agent + Bot) |
 | AI auto-reply via OpenClaw runtime | ✅ | routed by session key |
 | Native WeCom Bot stream protocol | ✅ | `msgtype=stream` refresh flow |
+| Bot thinking display | ✅ | parses `<think>/<thinking>/<thought>` into native `thinking_content` |
 | Bot card replies | ✅ | `markdown/template_card` with automatic text fallback |
 | Multi-account support | ✅ | `channels.wecom.accounts.<id>` |
 | Sender allowlist and admin bypass | ✅ | `allowFrom` + `adminUsers` |
@@ -75,6 +76,7 @@ This release is a major operations-focused upgrade: **WeCom now supports visual 
 | Default callback path | `/wecom/callback` | `/wecom/bot/callback` |
 | Reply mechanism | WeCom send APIs | stream response + refresh polling |
 | Streaming UX | simulated via multiple messages | native stream protocol |
+| Thinking display | not applicable | native `thinking_content` from `<think>` tags |
 | Outbound media | full support (image/voice/video/file) | image/file supported (`active_stream msg_item(image)` first, then `response_url` mixed / webhook fallback) |
 
 ## 5-Minute Quick Start

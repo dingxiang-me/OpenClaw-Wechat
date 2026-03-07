@@ -25,6 +25,7 @@ function buildEncryptedStreamPayload({
   content,
   finish,
   msgItem,
+  thinkingContent,
   feedbackId,
 }) {
   const streamPayload = {
@@ -34,6 +35,9 @@ function buildEncryptedStreamPayload({
   };
   if (Array.isArray(msgItem) && msgItem.length > 0) {
     streamPayload.msg_item = msgItem;
+  }
+  if (String(thinkingContent ?? "").trim()) {
+    streamPayload.thinking_content = String(thinkingContent).trim();
   }
   if (feedbackId) {
     streamPayload.feedback = { id: feedbackId };
@@ -113,6 +117,7 @@ export function createWecomBotParsedDispatcher({
       content: stream?.content ?? "会话已过期",
       finish: stream ? stream.finished === true : true,
       msgItem: stream?.msgItem,
+      thinkingContent: stream?.thinkingContent,
       feedbackId,
     });
     sendEncryptedJson(res, encryptedResponse);

@@ -193,6 +193,7 @@ npm run wecom:bot:selfcheck -- --all-accounts
 | 语音/视频/文件发送（出站） | ✅ | 自动判型上传后发送（语音支持 AMR/SILK） |
 | 语音转写（本地） | ✅ | 企业微信 Recognition 优先，缺失时回退本地 whisper |
 | Bot 模式媒体回传 | ✅ | `active_stream` 优先 `msg_item(image)`；失败自动降级媒体链接，`response_url`/Webhook Bot 继续兜底 |
+| Bot 思考过程展示 | ✅ | 识别 `<think>/<thinking>/<thought>`，映射到原生 `thinking_content` 折叠区 |
 | Bot 文件入站 | ✅ | 支持 `msgtype=file` 下载并注入会话上下文 |
 | Bot 引用消息上下文 | ✅ | 自动将 `quote` 内容前置到本轮上下文 |
 
@@ -205,6 +206,7 @@ npm run wecom:bot:selfcheck -- --all-accounts
 | 回调路径默认值 | `/wecom/callback` | `/wecom/bot/callback` |
 | 回复机制 | 主动调用 WeCom 发送 API | 回调响应 `stream` + 轮询刷新 |
 | 流式体验 | 多条消息模拟增量 | 原生 stream 协议 |
+| 思考展示 | 不适用 | 支持 `<think>` 标签映射到 `thinking_content` |
 | 出站媒体（图/语音/视频/文件） | 支持 | 支持（`active_stream msg_item(image)` + `response_url/Webhook` 回包，video 自动按 file 回传） |
 | 典型场景 | 标准企业应用、菜单/回调体系 | 对话机器人、连续流式问答 |
 

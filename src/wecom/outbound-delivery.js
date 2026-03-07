@@ -163,6 +163,7 @@ export function createWecomBotReplyDeliverer({
     streamId,
     responseUrl,
     text,
+    thinkingContent = "",
     routeAgentId = "",
     mediaUrl,
     mediaUrls,
@@ -220,6 +221,7 @@ export function createWecomBotReplyDeliverer({
             streamId,
             sessionId: normalizedSessionId,
             content,
+            thinkingContent,
             normalizedMediaUrls,
             mediaType,
             normalizedText,
@@ -283,6 +285,7 @@ export function createWecomBotReplyDeliverer({
         streamId: streamId || "",
         hasResponseUrl: Boolean(inlineResponseUrl || cachedResponseUrl?.url),
         mediaCount: normalizedMediaUrls.length,
+        hasThinkingContent: Boolean(String(thinkingContent ?? "").trim()),
         botCardMode: botModeConfig?.card?.enabled ? botModeConfig.card.mode : "off",
       },
     });

@@ -1,6 +1,6 @@
 {
   "name": "@dingxiang-me/openclaw-wechat",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "type": "module",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "license": "MIT",

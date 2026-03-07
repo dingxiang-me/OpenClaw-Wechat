@@ -50,7 +50,41 @@ test("createWecomBotDispatchHandlers handles block payload and queues media", as
   assert.deepEqual(updates[0], {
     streamId: "stream-1",
     text: "fmt:hello",
-    options: { append: false, finished: false },
+    options: { append: false, finished: false, thinkingContent: "" },
+  });
+});
+
+test("createWecomBotDispatchHandlers maps think tags into thinkingContent", async () => {
+  const updates = [];
+  const delivered = [];
+  const state = { blockText: "", streamFinished: false };
+  const handlers = createWecomBotDispatchHandlers({
+    api: { logger: { debug() {}, error() {} } },
+    streamId: "stream-think",
+    state,
+    hasBotStream: () => true,
+    normalizeWecomBotOutboundMediaUrls: () => [],
+    queueBotStreamMedia: () => {},
+    updateBotStream: (streamId, text, options) => updates.push({ streamId, text, options }),
+    markdownToWecomText: (text) => String(text).replace(/\*\*/g, ""),
+    isAgentFailureText: () => false,
+    safeDeliverReply: async (payload, reason) => {
+      delivered.push({ payload, reason });
+      return true;
+    },
+  });
+
+  await handlers.deliver({ text: "<think>先分析</think>**最终**答案" }, { kind: "block" });
+  assert.deepEqual(updates[0], {
+    streamId: "stream-think",
+    text: "最终答案",
+    options: { append: false, finished: false, thinkingContent: "先分析" },
+  });
+
+  await handlers.deliver({ text: "<think>最后思路</think>输出结果" }, { kind: "final" });
+  assert.deepEqual(delivered[0], {
+    payload: { text: "输出结果", thinkingContent: "最后思路" },
+    reason: "final",
   });
 });
 

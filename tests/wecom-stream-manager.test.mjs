@@ -66,6 +66,23 @@ test("WecomStreamManager update can replace msg_item", () => {
   assert.equal(stream?.msgItem?.[0]?.image?.md5, md5);
 });
 
+test("WecomStreamManager stores thinkingContent on update and finish", () => {
+  const manager = new WecomStreamManager({ expireMs: 60 * 1000, maxBytes: 20480 });
+  manager.create("stream-think", "处理中");
+
+  manager.update("stream-think", "Visible 1", {
+    thinkingContent: "Thinking 1",
+  });
+  assert.equal(manager.get("stream-think")?.thinkingContent, "Thinking 1");
+
+  manager.finish("stream-think", "Visible 2", {
+    thinkingContent: "Thinking 2",
+  });
+  const stream = manager.get("stream-think");
+  assert.equal(stream?.content, "Visible 2");
+  assert.equal(stream?.thinkingContent, "Thinking 2");
+});
+
 test("WecomStreamManager queues and drains media per stream", () => {
   const manager = new WecomStreamManager({ expireMs: 60 * 1000, maxBytes: 20480 });
   manager.create("stream-3", "处理中");

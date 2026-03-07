@@ -1,3 +1,5 @@
+import { parseThinkingContent } from "./thinking-parser.js";
+
 function assertFunction(name, value) {
   if (typeof value !== "function") {
     throw new Error(`bot-dispatch-fallback: ${name} is required`);
@@ -26,9 +28,17 @@ export async function handleWecomBotPostDispatchFallback({
   const filledFromTranscript = await tryFinishFromTranscript(dispatchStartedAt);
   if (filledFromTranscript) return false;
 
-  const fallback = markdownToWecomText(dispatchState.blockText).trim();
-  if (fallback) {
-    await safeDeliverReply(fallback, "block-fallback");
+  const parsed = parseThinkingContent(dispatchState.blockText);
+  const fallback = markdownToWecomText(parsed.visibleContent).trim();
+  const thinkingContent = markdownToWecomText(parsed.thinkingContent).trim();
+  if (fallback || thinkingContent) {
+    await safeDeliverReply(
+      {
+        text: fallback,
+        thinkingContent,
+      },
+      "block-fallback",
+    );
     return false;
   }
 

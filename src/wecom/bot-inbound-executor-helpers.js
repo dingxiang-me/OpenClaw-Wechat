@@ -174,8 +174,9 @@ export function createWecomBotSafeReplyHelpers({
           ? reply
           : { text: "" };
     const contentText = String(normalizedReply.text ?? "").trim();
+    const thinkingContent = String(normalizedReply.thinkingContent ?? "").trim();
     const replyMediaUrls = normalizeWecomBotOutboundMediaUrls(normalizedReply);
-    if (!contentText && replyMediaUrls.length === 0) return false;
+    if (!contentText && replyMediaUrls.length === 0 && !thinkingContent) return false;
     const result = await deliverBotReplyText({
       api,
       fromUser,
@@ -184,12 +185,15 @@ export function createWecomBotSafeReplyHelpers({
       streamId,
       responseUrl,
       text: contentText,
+      thinkingContent,
       mediaUrls: replyMediaUrls,
       mediaType: String(normalizedReply.mediaType ?? "").trim().toLowerCase() || undefined,
       reason,
     });
     if (!result?.ok && hasBotStream(streamId)) {
-      finishBotStream(streamId, contentText || "已收到模型返回的媒体结果，请稍后刷新。");
+      finishBotStream(streamId, contentText || "已收到模型返回的媒体结果，请稍后刷新。", {
+        thinkingContent,
+      });
     }
     return result?.ok === true;
   };

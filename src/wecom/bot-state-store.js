@@ -84,13 +84,13 @@ export function createWecomBotStateStore({
     return stream;
   }
 
-  function updateStream(streamId, content, { append = false, finished = false, msgItem } = {}) {
-    return streamManager.update(streamId, content, { append, finished, msgItem });
+  function updateStream(streamId, content, { append = false, finished = false, msgItem, thinkingContent } = {}) {
+    return streamManager.update(streamId, content, { append, finished, msgItem, thinkingContent });
   }
 
-  function finishStream(streamId, content, { msgItem } = {}) {
+  function finishStream(streamId, content, { msgItem, thinkingContent } = {}) {
     const normalizedStreamId = String(streamId ?? "").trim();
-    const stream = streamManager.finish(normalizedStreamId, content, { msgItem });
+    const stream = streamManager.finish(normalizedStreamId, content, { msgItem, thinkingContent });
     if (stream) {
       const sessionId = streamToSession.get(normalizedStreamId);
       if (sessionId) unregisterActiveStream(sessionId, normalizedStreamId);
@@ -184,4 +184,3 @@ export function createWecomBotStateStore({
     startCleanup,
   };
 }
-
