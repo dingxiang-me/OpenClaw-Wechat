@@ -668,10 +668,12 @@ npm run wecom:bot:selfcheck -- --all-accounts
 | `npm run wecom:agent:selfcheck -- --account <id>` | single-account Agent E2E self-check (URL verify + encrypted POST) |
 | `npm run wecom:agent:selfcheck -- --all-accounts` | multi-account Agent E2E self-check (runs URL verify + encrypted POST per account) |
 | `npm run wecom:bot:selfcheck -- --account <id>` | Bot E2E self-check (URL verify/signature/encryption/stream-refresh, supports multi-account) |
+| `npm run wecom:callback:matrix -- --agent-url <public-agent-callback> --bot-url <public-bot-callback>` | public callback matrix probe (optionally include legacy alias URLs) |
 | `npm run wecom:remote:e2e -- --mode all --agent-url <public-agent-callback> --bot-url <public-bot-callback>` | remote matrix verification (Agent + Bot) |
 | `npm run wecom:remote:e2e -- --mode all --agent-url <public-agent-callback> --bot-url <public-bot-callback> --prepare-browser --collect-pdf` | remote matrix with browser sandbox prepare + PDF artifact collection |
 | `WECOM_E2E_BOT_URL=<...> WECOM_E2E_AGENT_URL=<...> npm run wecom:remote:e2e -- --mode all` | env-driven remote E2E (also compatible with legacy `E2E_WECOM_*`) |
 | `npm run wecom:e2e:scenario -- --scenario full-smoke --agent-url <public-agent-callback> --bot-url <public-bot-callback>` | scenario-based E2E (preset smoke/queue workflows) |
+| `npm run wecom:e2e:scenario -- --scenario callback-matrix --agent-url <public-agent-callback> --bot-url <public-bot-callback>` | callback-health-only scenario |
 | `npm run wecom:e2e:scenario -- --scenario compat-smoke --agent-url <new-agent-url> --agent-legacy-url <legacy-agent-url> --bot-url <new-bot-url> --bot-legacy-url <legacy-bot-url>` | compatibility matrix run across new + legacy webhook endpoints |
 | `npm run wecom:e2e:scenario -- --scenario matrix-smoke --bot-url <public-bot-callback>` | bot protocol matrix checks (signature/negative requests/stream-refresh/dedupe; requires `WECOM_BOT_TOKEN/WECOM_BOT_ENCODING_AES_KEY`) |
 | `npm run wecom:e2e:compat -- --agent-url <new-agent-url> --agent-legacy-url <legacy-agent-url> --bot-url <new-bot-url> --bot-legacy-url <legacy-bot-url>` | compatibility matrix shortcut command (same as `--scenario compat-smoke`) |

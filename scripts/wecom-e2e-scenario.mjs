@@ -100,6 +100,7 @@ function parseArgs(argv) {
 
   const scenario = out.scenario;
   const valid = new Set(["bot-smoke", "agent-smoke", "full-smoke", "bot-queue", "compat-smoke", "matrix-smoke"]);
+  valid.add("callback-matrix");
   if (!valid.has(scenario)) {
     throw new Error(`Invalid --scenario, expected one of: ${Array.from(valid).join(" | ")}`);
   }
@@ -132,7 +133,7 @@ function printHelp() {
   console.log(`OpenClaw-Wechat scenario E2E
 
 Usage:
-  npm run wecom:e2e:scenario -- --scenario <bot-smoke|agent-smoke|full-smoke|bot-queue|compat-smoke|matrix-smoke> [options]
+  npm run wecom:e2e:scenario -- --scenario <bot-smoke|agent-smoke|full-smoke|bot-queue|compat-smoke|matrix-smoke|callback-matrix> [options]
 
 Scenarios:
   bot-smoke    Run remote bot E2E once
@@ -141,6 +142,7 @@ Scenarios:
   bot-queue    Run bot E2E twice with same sender to validate queue/stream recovery
   compat-smoke Run compatibility matrix on new + legacy webhook URLs
   matrix-smoke Run remote bot protocol matrix E2E test suite
+  callback-matrix Probe public callback health for Agent/Bot (+ optional legacy alias)
 
 Options:
   --bot-url <url>          Bot callback URL (required for bot/full/bot-queue)
@@ -201,6 +203,8 @@ function buildRemoteE2eArgs({ mode, options, content }) {
   ];
   if (options.botUrl) args.push("--bot-url", options.botUrl);
   if (options.agentUrl) args.push("--agent-url", options.agentUrl);
+  if (options.botLegacyUrl) args.push("--bot-legacy-url", options.botLegacyUrl);
+  if (options.agentLegacyUrl) args.push("--agent-legacy-url", options.agentLegacyUrl);
   if (options.configPath) args.push("--config", options.configPath);
   if (options.fromUser) args.push("--from-user", options.fromUser);
   if (options.prepareBrowser) args.push("--prepare-browser");
@@ -298,6 +302,17 @@ async function main() {
         WECOM_E2E_MATRIX_POLL_INTERVAL_MS: String(args.pollIntervalMs),
         ...(args.fromUser ? { WECOM_E2E_FROM_USER: args.fromUser } : {}),
       },
+    });
+  } else if (args.scenario === "callback-matrix") {
+    const matrixArgs = ["--timeout-ms", String(args.timeoutMs)];
+    if (args.agentUrl) matrixArgs.push("--agent-url", args.agentUrl);
+    if (args.botUrl) matrixArgs.push("--bot-url", args.botUrl);
+    if (args.agentLegacyUrl) matrixArgs.push("--agent-legacy-url", args.agentLegacyUrl);
+    if (args.botLegacyUrl) matrixArgs.push("--bot-legacy-url", args.botLegacyUrl);
+    steps.push({
+      label: "Callback matrix",
+      script: "./scripts/wecom-callback-matrix.mjs",
+      args: matrixArgs,
     });
   }
 

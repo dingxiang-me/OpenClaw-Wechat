@@ -28,6 +28,8 @@ function parseArgs(argv) {
       pickFirstEnv("WECOM_E2E_AGENT_URL") ||
       joinBaseUrl(pickFirstEnv("WECOM_E2E_BASE_URL"), pickFirstEnv("WECOM_E2E_AGENT_PATH")) ||
       joinBaseUrl(pickFirstEnv("E2E_WECOM_BASE_URL"), pickFirstEnv("E2E_WECOM_AGENT_WEBHOOK_PATH") || "/wecom/callback"),
+    botLegacyUrl: pickFirstEnv("WECOM_E2E_BOT_LEGACY_URL"),
+    agentLegacyUrl: pickFirstEnv("WECOM_E2E_AGENT_LEGACY_URL"),
     configPath: pickFirstEnv("WECOM_E2E_CONFIG", "OPENCLAW_CONFIG_PATH"),
     account: "default",
     fromUser: pickFirstEnv("WECOM_E2E_FROM_USER", "E2E_WECOM_TEST_USER"),
@@ -52,6 +54,12 @@ function parseArgs(argv) {
       i += 1;
     } else if (arg === "--agent-url" && next) {
       out.agentUrl = next;
+      i += 1;
+    } else if (arg === "--bot-legacy-url" && next) {
+      out.botLegacyUrl = next;
+      i += 1;
+    } else if (arg === "--agent-legacy-url" && next) {
+      out.agentLegacyUrl = next;
       i += 1;
     } else if (arg === "--config" && next) {
       out.configPath = next;
@@ -121,6 +129,8 @@ Options:
   --mode <m>               Required: bot | agent | all
   --bot-url <url>          Required when mode=bot/all (or set via env)
   --agent-url <url>        Required when mode=agent/all (or set via env)
+  --bot-legacy-url <url>   Optional legacy Bot callback URL for matrix diagnostics
+  --agent-legacy-url <url> Optional legacy Agent callback URL for matrix diagnostics
   --config <path>          Optional: OpenClaw config path (or env WECOM_E2E_CONFIG)
   --account <id>           Optional: account id for Agent e2e (default: default)
   --from-user <userid>     Optional: simulated sender
@@ -198,6 +208,17 @@ async function main() {
       env: prepareEnv,
     });
   }
+  const callbackMatrixArgs = ["--timeout-ms", String(args.timeoutMs)];
+  if (args.agentUrl) callbackMatrixArgs.push("--agent-url", args.agentUrl);
+  if (args.botUrl) callbackMatrixArgs.push("--bot-url", args.botUrl);
+  if (args.agentLegacyUrl) callbackMatrixArgs.push("--agent-legacy-url", args.agentLegacyUrl);
+  if (args.botLegacyUrl) callbackMatrixArgs.push("--bot-legacy-url", args.botLegacyUrl);
+  steps.push({
+    label: "Public callback matrix",
+    runner: "node",
+    script: "./scripts/wecom-callback-matrix.mjs",
+    args: callbackMatrixArgs,
+  });
   steps.push({
     label: "WeCom account selfcheck (network)",
     runner: "node",

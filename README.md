@@ -894,6 +894,7 @@ ingress:
 npm run wecom:selfcheck -- --all-accounts
 npm run wecom:agent:selfcheck -- --all-accounts
 npm run wecom:bot:selfcheck -- --all-accounts
+npm run wecom:callback:matrix -- --agent-url https://你的域名/wecom/callback --bot-url https://你的域名/wecom/bot/callback
 ```
 
 现在自检会明确提示这些原因：
@@ -903,6 +904,16 @@ npm run wecom:bot:selfcheck -- --all-accounts
 - `gateway-auth`
 - `redirect-auth`
 - `gateway-unreachable`
+
+如果你要把新路径和 legacy alias 一次跑完，直接用：
+
+```bash
+npm run wecom:callback:matrix -- \
+  --agent-url https://你的域名/wecom/callback \
+  --bot-url https://你的域名/wecom/bot/callback \
+  --agent-legacy-url https://你的域名/webhooks/app \
+  --bot-legacy-url https://你的域名/webhooks/wecom
+```
 
 ## Webhook 与 Heartbeat 运维
 
@@ -1066,10 +1077,12 @@ npm run wecom:bot:selfcheck -- --all-accounts
 | `npm run wecom:agent:selfcheck -- --account <id>` | Agent 单账号端到端链路体检（URL 验证 + 加密 POST） |
 | `npm run wecom:agent:selfcheck -- --all-accounts` | Agent 多账号端到端链路体检（逐账号跑 URL 验证 + 加密 POST） |
 | `npm run wecom:bot:selfcheck -- --account <id>` | Bot 端到端链路体检（URL 验证/签名/加密/stream-refresh，支持多账户） |
+| `npm run wecom:callback:matrix -- --agent-url <公网Agent回调> --bot-url <公网Bot回调>` | 公网回调矩阵体检（可附带 legacy alias URL） |
 | `npm run wecom:remote:e2e -- --mode all --agent-url <公网Agent回调> --bot-url <公网Bot回调>` | 远端矩阵验证（Agent+Bot） |
 | `npm run wecom:remote:e2e -- --mode all --agent-url <公网Agent回调> --bot-url <公网Bot回调> --prepare-browser --collect-pdf` | 远端矩阵验证（含浏览器沙箱检查与 PDF 回收） |
 | `WECOM_E2E_BOT_URL=<...> WECOM_E2E_AGENT_URL=<...> npm run wecom:remote:e2e -- --mode all` | 用环境变量驱动远端 E2E（兼容旧 `E2E_WECOM_*`） |
 | `npm run wecom:e2e:scenario -- --scenario full-smoke --agent-url <公网Agent回调> --bot-url <公网Bot回调>` | 场景化 E2E（预置 smoke/queue 场景） |
+| `npm run wecom:e2e:scenario -- --scenario callback-matrix --agent-url <公网Agent回调> --bot-url <公网Bot回调>` | 只做公网回调矩阵检查 |
 | `npm run wecom:e2e:scenario -- --scenario compat-smoke --agent-url <新Agent回调> --agent-legacy-url <旧Agent回调> --bot-url <新Bot回调> --bot-legacy-url <旧Bot回调>` | 兼容矩阵验证（新旧回调地址都跑一遍） |
 | `npm run wecom:e2e:scenario -- --scenario matrix-smoke --bot-url <公网Bot回调>` | Bot 协议矩阵验证（验签/异常请求/stream-refresh/去重；需 `WECOM_BOT_TOKEN/WECOM_BOT_ENCODING_AES_KEY`） |
 | `npm run wecom:e2e:compat -- --agent-url <新Agent回调> --agent-legacy-url <旧Agent回调> --bot-url <新Bot回调> --bot-legacy-url <旧Bot回调>` | 兼容矩阵快捷命令（等价 `--scenario compat-smoke`） |

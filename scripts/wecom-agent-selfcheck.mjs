@@ -11,6 +11,7 @@ import {
   readAccountConfigFromEnv as readSharedAccountConfigFromEnv,
 } from "../src/wecom/account-config-core.js";
 import { buildDefaultAgentWebhookPath, buildLegacyAgentWebhookPath } from "../src/wecom/account-paths.js";
+import { diagnoseWecomCallbackHealth } from "../src/wecom/callback-health-diagnostics.js";
 
 const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "name",
@@ -218,55 +219,6 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
 
 function makeCheck(name, ok, detail, data = null) {
   return { name, ok: Boolean(ok), detail: String(detail ?? ""), data };
-}
-
-function diagnoseLocalHealthResponse({ status, body, endpoint, location = "" }) {
-  const raw = String(body ?? "");
-  const preview = raw.slice(0, 120);
-  const healthy = status === 200 && raw.toLowerCase().includes("wecom webhook");
-  if (healthy) {
-    return {
-      ok: true,
-      detail: `status=${status} body=${preview}`,
-      data: null,
-    };
-  }
-
-  const hints = [];
-  let reason = "unexpected-response";
-  if (status === 404) {
-    reason = "route-not-found";
-    hints.push("回调路径未命中插件路由");
-  } else if (status === 401 || status === 403) {
-    reason = "gateway-auth";
-    hints.push("回调路径被 Gateway Auth / Zero Trust / 反向代理鉴权拦截");
-    hints.push("企业微信回调与健康探测必须直达 webhook 路径，不能要求 Authorization、Cookie 或交互登录");
-    hints.push("为 /wecom/*（以及 legacy /webhooks/app*）单独放行，或使用独立回调域名/端口");
-  } else if ([301, 302, 303, 307, 308].includes(status)) {
-    reason = "redirect-auth";
-    hints.push("回调路径发生了重定向，通常被登录页、SSO 或前端路由接管");
-    if (location) hints.push(`重定向目标：${location}`);
-    hints.push("请让 /wecom/*（以及 legacy /webhooks/app*）直接反代到 OpenClaw 网关，不要跳转到登录页或前端应用");
-  } else if (status === 502 || status === 503 || status === 504) {
-    reason = "gateway-unreachable";
-    hints.push("网关端口不可达或反向代理后端异常");
-  } else if (status === 200 && /<!doctype html|<html/i.test(raw)) {
-    reason = "html-fallback";
-    hints.push("返回 WebUI HTML，通常表示 webhook 路由未注册或 webhookPath 配置不一致");
-    hints.push("确认 plugins.entries.openclaw-wechat.enabled=true 且 plugins.allow 包含 openclaw-wechat");
-  }
-
-  return {
-    ok: false,
-    detail: `status=${status} body=${preview}${hints.length > 0 ? ` hint=${hints.join("；")}` : ""}`,
-    data: {
-      endpoint,
-      status,
-      reason,
-      location: location || null,
-      hints,
-    },
-  };
 }
 
 function summarize(checks) {
@@ -521,10 +473,12 @@ async function runAgentE2E({ config, args, configPath, accountId }) {
       Math.min(args.timeoutMs, 4000),
     );
     const healthBody = await healthResponse.text();
-    const diagnosis = diagnoseLocalHealthResponse({
+    const diagnosis = diagnoseWecomCallbackHealth({
       status: healthResponse.status,
       body: healthBody,
+      mode: "agent",
       endpoint,
+      webhookPath: new URL(endpoint).pathname,
       location: healthResponse.headers.get("location") || "",
     });
     checks.push(
@@ -547,10 +501,12 @@ async function runAgentE2E({ config, args, configPath, accountId }) {
         Math.min(args.timeoutMs, 4000),
       );
       const healthBody = await healthResponse.text();
-      const diagnosis = diagnoseLocalHealthResponse({
+      const diagnosis = diagnoseWecomCallbackHealth({
         status: healthResponse.status,
         body: healthBody,
+        mode: "agent",
         endpoint: legacyAliasEndpoint,
+        webhookPath: new URL(legacyAliasEndpoint).pathname,
         location: healthResponse.headers.get("location") || "",
       });
       checks.push(

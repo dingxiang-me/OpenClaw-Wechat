@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { diagnoseWecomCallbackHealth } from "../src/wecom/callback-health-diagnostics.js";
 
 function parseArgs(argv) {
   const out = {
@@ -294,58 +295,6 @@ function buildPluginChecks(config) {
   return checks;
 }
 
-function diagnoseLocalBotWebhookHealth({ status, rawBody, webhookPath, gatewayPort, location = "" }) {
-  const body = String(rawBody ?? "");
-  const preview = body.slice(0, 120);
-  const normalizedBody = body.trim().toLowerCase();
-  const healthy = status === 200 && normalizedBody.includes("wecom bot webhook");
-  if (healthy) {
-    return {
-      ok: true,
-      detail: `status=${status} body=${preview}`,
-      data: null,
-    };
-  }
-
-  let reason = "unexpected-response";
-  const hints = [];
-  if (status === 404) {
-    reason = "route-not-found";
-    hints.push(`路径 ${webhookPath} 未命中 Bot 回调路由`);
-  } else if (status === 401 || status === 403) {
-    reason = "gateway-auth";
-    hints.push("Bot 回调路径被 Gateway Auth / Zero Trust / 反向代理鉴权拦截");
-    hints.push("企业微信 Bot 回调不能依赖 Authorization、Cookie 或人工登录");
-    hints.push("为 /wecom/*（以及 legacy /webhooks/wecom*）单独放行，或使用独立回调域名/端口");
-  } else if ([301, 302, 303, 307, 308].includes(status)) {
-    reason = "redirect-auth";
-    hints.push("Bot 回调路径发生了重定向，通常被登录页、SSO 或前端路由接管");
-    if (location) hints.push(`重定向目标：${location}`);
-    hints.push("请让 /wecom/*（以及 legacy /webhooks/wecom*）直接反代到 OpenClaw 网关，不要跳转到登录页或前端应用");
-  } else if (status === 502 || status === 503 || status === 504) {
-    reason = "gateway-unreachable";
-    hints.push(`网关 ${gatewayPort} 端口不可达或反向代理后端异常`);
-  } else if (status === 200 && /<!doctype html|<html/i.test(body)) {
-    reason = "html-fallback";
-    hints.push("返回了 WebUI HTML，通常表示 Bot webhook 路由未注册或 webhookPath 配置不一致");
-    hints.push(`请确认 channels.wecom.bot.webhookPath=${webhookPath} 与企业微信后台回调地址完全一致`);
-    hints.push("确认插件已加载：plugins.entries.openclaw-wechat.enabled=true 且 plugins.allow 包含 openclaw-wechat");
-  }
-
-  return {
-    ok: false,
-    detail: `status=${status} body=${preview}${hints.length > 0 ? ` hint=${hints.join("；")}` : ""}`,
-    data: {
-      status,
-      reason,
-      webhookPath,
-      gatewayPort,
-      location: location || null,
-      hints,
-    },
-  };
-}
-
 function resolveBotConfig(config) {
   const accountId = normalizeAccountId(config?.accountId ?? "default");
   const channel = config?.channels?.wecom ?? {};
@@ -606,9 +555,11 @@ async function runBotE2E({ config, args, configPath, accountId }) {
       Math.min(args.timeoutMs, 4000),
     );
     const healthBody = await healthResponse.text();
-    const diagnosed = diagnoseLocalBotWebhookHealth({
+    const diagnosed = diagnoseWecomCallbackHealth({
       status: healthResponse.status,
-      rawBody: healthBody,
+      body: healthBody,
+      mode: "bot",
+      endpoint,
       webhookPath: botConfig.webhookPath,
       gatewayPort: botConfig.gatewayPort,
       location: healthResponse.headers.get("location") || "",

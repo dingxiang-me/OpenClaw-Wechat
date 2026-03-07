@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.4] - 2026-03-08
+
+### Added
+- 新增 `wecom:callback:matrix`，可一次检查公网 Agent/Bot 回调以及可选 legacy alias，并直接给出 `route-not-found` / `html-fallback` / `gateway-auth` / `redirect-auth` / `gateway-unreachable`
+- 新增公网回调矩阵脚本测试，覆盖全绿链路与常见反代故障分类
+
+### Changed
+- `wecom:remote:e2e` 现在会先执行公网回调矩阵检查，再继续账号自检与 Agent/Bot E2E
+- `wecom:e2e:scenario` 新增 `callback-matrix` 场景，可单独做公网回调联调
+- Agent/Bot 自检脚本统一复用同一套回调健康诊断 helper，减少升级后判断口径漂移
+
 ## [1.9.3] - 2026-03-08
 
 ### Added

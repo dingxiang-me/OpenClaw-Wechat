@@ -203,6 +203,12 @@ Remote matrix E2E (against public callback URLs):
 npm run wecom:remote:e2e -- --mode all --agent-url https://your-domain.example/wecom/callback --bot-url https://your-domain.example/wecom/bot/callback
 ```
 
+Public callback matrix only:
+
+```bash
+npm run wecom:callback:matrix -- --agent-url https://your-domain.example/wecom/callback --bot-url https://your-domain.example/wecom/bot/callback
+```
+
 Upgrade smoke check:
 
 ```bash
