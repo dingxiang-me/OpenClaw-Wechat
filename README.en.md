@@ -139,6 +139,8 @@ If you are loading from source path instead, use the version below with `load.pa
 | Agent | `corpId`, `corpSecret`, `agentId`, `callbackToken`, `callbackAesKey` |
 | Bot | `bot.enabled=true`, `bot.token`, `bot.encodingAesKey` |
 
+> Agent-mode note (important): configure **Trusted IP** in the WeCom self-built app settings and include the real egress IP of your OpenClaw gateway. Otherwise you may see "messages received but no reply".
+
 ### 4) Restart and verify
 
 ```bash

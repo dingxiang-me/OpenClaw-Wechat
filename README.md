@@ -144,6 +144,8 @@ npm install
 | Agent（自建应用） | `/wecom/callback` | 自建应用 API 接收 | `corpId/corpSecret/agentId/callbackToken/callbackAesKey` |
 | Bot（智能机器人） | `/wecom/bot/callback` | 智能机器人 **API 模式** | `bot.enabled/token/encodingAesKey` |
 
+> Agent 模式补充（重要）：在企业微信自建应用后台请配置**可信 IP**，把 OpenClaw 网关实际出网 IP 加入白名单。否则可能出现“能收到消息但不回复”。
+
 ### Step 4. 重启并自检
 
 ```bash
