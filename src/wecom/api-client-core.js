@@ -121,7 +121,7 @@ export function createWecomApiClientCore({
   }
 
   async function getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger }) {
-    const cacheKey = corpId;
+    const cacheKey = `${corpId}:${corpSecret}`;
     let cache = accessTokenCaches.get(cacheKey);
 
     if (!cache) {
