@@ -13,6 +13,7 @@ function createPassThroughLimiter() {
 
 test("createWecomApiSenders sendWecomText sends split chunks in order", async () => {
   const sentBodies = [];
+  const buildCalls = [];
   const senders = createWecomApiSenders({
     sleep: async () => {},
     splitWecomText: () => ["part-1", "part-2"],
@@ -27,14 +28,17 @@ test("createWecomApiSenders sendWecomText sends split chunks in order", async ()
       };
     },
     getWecomAccessToken: async () => "token-1",
-    buildWecomMessageSendRequest: ({ msgType, payload }) => ({
+    buildWecomMessageSendRequest: ({ msgType, payload, apiProxy }) => {
+      buildCalls.push(apiProxy);
+      return {
       sendUrl: "https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=token-1",
       body: {
         msgtype: msgType,
         ...payload,
       },
       isAppChat: false,
-    }),
+      };
+    },
   });
 
   await senders.sendWecomText({
@@ -43,12 +47,14 @@ test("createWecomApiSenders sendWecomText sends split chunks in order", async ()
     agentId: "1000002",
     toUser: "alice",
     text: "ignored",
+    apiProxy: "https://wecom-proxy.example.com",
     logger: { info() {}, warn() {}, error() {} },
   });
 
   assert.equal(sentBodies.length, 2);
   assert.equal(sentBodies[0]?.text?.content, "part-1");
   assert.equal(sentBodies[1]?.text?.content, "part-2");
+  assert.deepEqual(buildCalls, ["https://wecom-proxy.example.com", "https://wecom-proxy.example.com"]);
 });
 
 test("createWecomApiSenders sendWecomVoice throws typed error on errcode", async () => {

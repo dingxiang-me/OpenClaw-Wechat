@@ -10,6 +10,27 @@ export function createWecomApiClientCore({
   const accessTokenCaches = new Map();
   const proxyDispatcherCache = new Map();
   const invalidProxyCache = new Set();
+  const DEFAULT_WECOM_API_BASE_URL = "https://qyapi.weixin.qq.com";
+
+  function resolveWecomApiBaseUrl(apiProxy) {
+    const raw = String(apiProxy ?? "").trim();
+    if (!raw) return DEFAULT_WECOM_API_BASE_URL;
+    try {
+      const parsed = new URL(raw);
+      if (!/^https?:$/i.test(parsed.protocol)) return DEFAULT_WECOM_API_BASE_URL;
+      parsed.hash = "";
+      parsed.search = "";
+      return parsed.toString().replace(/\/+$/, "");
+    } catch {
+      return DEFAULT_WECOM_API_BASE_URL;
+    }
+  }
+
+  function buildWecomApiUrl(pathnameWithQuery, apiProxy) {
+    const normalizedPath = String(pathnameWithQuery ?? "");
+    if (!normalizedPath) return resolveWecomApiBaseUrl(apiProxy);
+    return `${resolveWecomApiBaseUrl(apiProxy)}${normalizedPath.startsWith("/") ? normalizedPath : `/${normalizedPath}`}`;
+  }
 
   function isWecomApiUrl(url) {
     const raw = typeof url === "string" ? url : String(url ?? "");
@@ -166,6 +187,7 @@ export function createWecomApiClientCore({
     chatId,
     msgType,
     payload,
+    apiProxy,
   }) {
     const isAppChat = Boolean(chatId);
     if (!isAppChat && !toUser && !toParty && !toTag) {
@@ -173,7 +195,10 @@ export function createWecomApiClientCore({
     }
     if (isAppChat) {
       return {
-        sendUrl: `https://qyapi.weixin.qq.com/cgi-bin/appchat/send?access_token=${encodeURIComponent(accessToken)}`,
+        sendUrl: buildWecomApiUrl(
+          `/cgi-bin/appchat/send?access_token=${encodeURIComponent(accessToken)}`,
+          apiProxy,
+        ),
         body: {
           chatid: chatId,
           msgtype: msgType,
@@ -184,7 +209,10 @@ export function createWecomApiClientCore({
       };
     }
     return {
-      sendUrl: `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`,
+      sendUrl: buildWecomApiUrl(
+        `/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`,
+        apiProxy,
+      ),
       body: {
         touser: toUser,
         toparty: toParty,

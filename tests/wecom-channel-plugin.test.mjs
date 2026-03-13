@@ -20,6 +20,7 @@ function createPluginHarness(overrides = {}) {
     corpSecret: "sec",
     agentId: "1001",
     outboundProxy: "",
+    apiProxy: "https://wecom-proxy.example.com",
     webhooks: { ops: { url: "https://example.com", key: "k1" } },
   };
   const runtime = { config: { channels: { wecom: {} } }, logger };
@@ -74,6 +75,8 @@ test("channel plugin inbound.deliverReply sends media + text for direct target",
   assert.equal(result.ok, true);
   assert.equal(calls.outboundMedia.length, 1);
   assert.equal(calls.sendText.length, 1);
+  assert.equal(calls.outboundMedia[0]?.apiProxy, "https://wecom-proxy.example.com");
+  assert.equal(calls.sendText[0]?.apiProxy, "https://wecom-proxy.example.com");
 });
 
 test("channel plugin resolveTarget validates target", () => {

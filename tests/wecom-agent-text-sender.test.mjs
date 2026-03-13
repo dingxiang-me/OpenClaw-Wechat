@@ -16,6 +16,7 @@ test("createWecomAgentTextSender forwards fixed args and text", async () => {
     toUser: "dingxiang",
     logger: { info() {}, warn() {}, error() {} },
     proxyUrl: "http://127.0.0.1:8080",
+    apiProxy: "https://wecom-proxy.example.com",
   });
 
   await sendText("hello");
@@ -25,5 +26,6 @@ test("createWecomAgentTextSender forwards fixed args and text", async () => {
   assert.equal(calls[0].agentId, "1000002");
   assert.equal(calls[0].toUser, "dingxiang");
   assert.equal(calls[0].proxyUrl, "http://127.0.0.1:8080");
+  assert.equal(calls[0].apiProxy, "https://wecom-proxy.example.com");
   assert.equal(calls[0].text, "hello");
 });

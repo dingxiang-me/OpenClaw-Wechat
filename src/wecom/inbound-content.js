@@ -58,6 +58,7 @@ export function createWecomInboundContentBuilder({
     corpSecret,
     agentId,
     proxyUrl,
+    apiProxy,
     fromUser,
     msgType,
     baseText,
@@ -94,6 +95,7 @@ export function createWecomInboundContentBuilder({
         mediaId,
         recognition,
         proxyUrl,
+        apiProxy,
       });
     } else if (msgType === "video" && mediaId) {
       result = await handlers.handleVideo({

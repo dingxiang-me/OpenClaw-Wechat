@@ -22,6 +22,7 @@ export function createWecomAgentDispatchHandlers({
   corpSecret = "",
   agentId = "",
   proxyUrl = "",
+  apiProxy = "",
   flushStreamingBuffer,
   sendFailureFallback,
   sendTextToUser,
@@ -115,6 +116,7 @@ export function createWecomAgentDispatchHandlers({
             toUser: fromUser,
             logger,
             proxyUrl,
+            apiProxy,
           });
           const workspaceHints = buildWorkspaceAutoSendHints(workspaceAutoMedia);
           const finalReplyText = [formattedReply, ...workspaceHints].filter(Boolean).join("\n\n");
@@ -136,6 +138,7 @@ export function createWecomAgentDispatchHandlers({
           mediaType: payload.mediaType,
           logger,
           proxyUrl,
+          apiProxy,
         });
         if (mediaResult.sentCount > 0) {
           state.hasDeliveredReply = true;

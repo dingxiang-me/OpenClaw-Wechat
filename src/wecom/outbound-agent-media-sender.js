@@ -41,6 +41,7 @@ export function createWecomAgentMediaSender({
     mediaType,
     logger,
     proxyUrl,
+    apiProxy,
     maxBytes = 20 * 1024 * 1024,
   } = {}) {
     const candidates = normalizeOutboundMediaUrls({ mediaUrl, mediaUrls });
@@ -79,6 +80,7 @@ export function createWecomAgentMediaSender({
             text: fallbackText,
             logger,
             proxyUrl,
+            apiProxy,
           });
           logger?.info?.(
             `wecom: tiny file fallback as text (${buffer.length} bytes) target=${candidate.slice(0, 120)}`,
@@ -107,6 +109,7 @@ export function createWecomAgentMediaSender({
             mediaId,
             logger,
             proxyUrl,
+            apiProxy,
           });
         } else if (target.type === "video") {
           await sendWecomVideo({
@@ -120,6 +123,7 @@ export function createWecomAgentMediaSender({
             mediaId,
             logger,
             proxyUrl,
+            apiProxy,
           });
         } else if (target.type === "voice") {
           await sendWecomVoice({
@@ -133,6 +137,7 @@ export function createWecomAgentMediaSender({
             mediaId,
             logger,
             proxyUrl,
+            apiProxy,
           });
         } else {
           await sendWecomFile({
@@ -146,6 +151,7 @@ export function createWecomAgentMediaSender({
             mediaId,
             logger,
             proxyUrl,
+            apiProxy,
           });
         }
         sentCount += 1;

@@ -12,6 +12,7 @@ export function createWecomAgentTextSender({
   toUser,
   logger,
   proxyUrl,
+  apiProxy,
 } = {}) {
   assertFunction("sendWecomText", sendWecomText);
 
@@ -24,6 +25,7 @@ export function createWecomAgentTextSender({
       text,
       logger,
       proxyUrl,
+      apiProxy,
     });
   };
 }

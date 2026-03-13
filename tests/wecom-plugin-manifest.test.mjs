@@ -29,3 +29,10 @@ test("openclaw.plugin.json exposes wecom doc tool config", () => {
     true,
   );
 });
+
+test("openclaw.plugin.json exposes wecom apiProxy config", () => {
+  const manifestPath = path.resolve(process.cwd(), "openclaw.plugin.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  assert.equal(manifest?.configSchema?.properties?.apiProxy?.type, "string");
+  assert.equal(manifest?.configSchema?.properties?.accounts?.additionalProperties?.properties?.apiProxy?.type, "string");
+});

@@ -22,6 +22,7 @@ export function createWecomTextSender({
     text,
     logger,
     proxyUrl,
+    apiProxy,
   }) {
     const sendJson = await sendWecomTypedMessage({
       corpId,
@@ -37,6 +38,7 @@ export function createWecomTextSender({
       },
       logger,
       proxyUrl,
+      apiProxy,
       errorPrefix: "",
     });
     const isAppChat = Boolean(chatId);
@@ -56,6 +58,7 @@ export function createWecomTextSender({
     text,
     logger,
     proxyUrl,
+    apiProxy,
   }) {
     const chunks = splitWecomText(text);
     logger?.info?.(`wecom: splitting message into ${chunks.length} chunks, total bytes=${getByteLength(text)}`);
@@ -74,6 +77,7 @@ export function createWecomTextSender({
         text: chunks[i],
         logger,
         proxyUrl,
+        apiProxy,
       });
       if (i < chunks.length - 1) {
         // eslint-disable-next-line no-await-in-loop

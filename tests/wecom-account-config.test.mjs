@@ -61,3 +61,27 @@ test("account registry discovers legacy inline account entries", () => {
     "/wecom/legacy/callback",
   );
 });
+
+test("account registry falls back to channel apiProxy for accounts", () => {
+  const registry = createRegistry();
+  const config = {
+    channels: {
+      wecom: {
+        apiProxy: "https://wecom-proxy.example.com/base",
+        accounts: {
+          sales: buildAccount(1001),
+          support: buildAccount(1002, { apiProxy: "https://wecom-proxy.example.com/support" }),
+        },
+      },
+    },
+  };
+
+  assert.equal(
+    registry.getWecomConfig({ gatewayRuntime: { config }, accountId: "sales" })?.apiProxy,
+    "https://wecom-proxy.example.com/base",
+  );
+  assert.equal(
+    registry.getWecomConfig({ gatewayRuntime: { config }, accountId: "support" })?.apiProxy,
+    "https://wecom-proxy.example.com/support",
+  );
+});

@@ -19,6 +19,7 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "encodingAesKey",
   "webhookPath",
   "outboundProxy",
+  "apiProxy",
   "proxyUrl",
   "proxy",
   "webhooks",
@@ -81,6 +82,7 @@ export function createWecomAccountRegistry({
     const cfg = api?.config ?? gatewayRuntime?.config ?? {};
     const channelConfig = cfg?.channels?.wecom;
     const envVars = cfg?.env?.vars ?? {};
+    const channelApiProxy = String(channelConfig?.apiProxy ?? "").trim();
     const globalWebhookTargets = normalizeWecomWebhookTargetMap(
       channelConfig?.webhooks,
       envVars?.WECOM_WEBHOOK_TARGETS,
@@ -137,6 +139,7 @@ export function createWecomAccountRegistry({
         processEnv,
         accountId,
       });
+      config.apiProxy = String(config?.apiProxy ?? "").trim() || channelApiProxy || undefined;
     }
 
     wecomAccounts.clear();

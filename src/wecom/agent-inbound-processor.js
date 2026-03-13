@@ -94,7 +94,7 @@ export function createWecomAgentInboundProcessor(deps = {}) {
 
     const cfg = api.config;
     const runtime = api.runtime;
-    const { corpId, corpSecret, agentId, outboundProxy: proxyUrl } = config;
+    const { corpId, corpSecret, agentId, outboundProxy: proxyUrl, apiProxy } = config;
     const sendTextToUser = createWecomAgentTextSender({
       sendWecomText,
       corpId,
@@ -103,6 +103,7 @@ export function createWecomAgentInboundProcessor(deps = {}) {
       toUser: fromUser,
       logger: api.logger,
       proxyUrl,
+      apiProxy,
     });
 
     try {
@@ -146,6 +147,7 @@ export function createWecomAgentInboundProcessor(deps = {}) {
           agentId,
           accountId: config.accountId || "default",
           proxyUrl,
+          apiProxy,
           chatId,
           isGroupChat,
         },
@@ -206,6 +208,7 @@ export function createWecomAgentInboundProcessor(deps = {}) {
         corpSecret,
         agentId,
         proxyUrl,
+        apiProxy,
         fromUser,
         msgType,
         baseText: msgType === "text" ? commandBody : originalContent,
@@ -272,6 +275,7 @@ export function createWecomAgentInboundProcessor(deps = {}) {
         corpSecret,
         agentId,
         proxyUrl,
+        apiProxy,
         tempPathsToCleanup,
         resolveWecomReplyStreamingPolicy,
         asNumber,

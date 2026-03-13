@@ -24,6 +24,7 @@ function createDeps(overrides = {}) {
 
 test("sendWecomOutboundMediaBatch routes voice target to sendWecomVoice", async () => {
   const voiceMediaIds = [];
+  const apiProxies = [];
   const uploadTypes = [];
   const sender = createWecomAgentMediaSender(
     createDeps({
@@ -31,8 +32,9 @@ test("sendWecomOutboundMediaBatch routes voice target to sendWecomVoice", async 
         uploadTypes.push(type);
         return "media-voice";
       },
-      sendWecomVoice: async ({ mediaId }) => {
+      sendWecomVoice: async ({ mediaId, apiProxy }) => {
         voiceMediaIds.push(mediaId);
+        apiProxies.push(apiProxy);
       },
     }),
   );
@@ -43,6 +45,7 @@ test("sendWecomOutboundMediaBatch routes voice target to sendWecomVoice", async 
     agentId: "1000002",
     toUser: "alice",
     mediaUrls: ["https://example.com/a.amr"],
+    apiProxy: "https://wecom-proxy.example.com",
     logger: { info() {}, warn() {}, error() {} },
   });
 
@@ -51,4 +54,5 @@ test("sendWecomOutboundMediaBatch routes voice target to sendWecomVoice", async 
   assert.equal(result.failed.length, 0);
   assert.deepEqual(uploadTypes, ["voice"]);
   assert.deepEqual(voiceMediaIds, ["media-voice"]);
+  assert.deepEqual(apiProxies, ["https://wecom-proxy.example.com"]);
 });

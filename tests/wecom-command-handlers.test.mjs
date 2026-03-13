@@ -48,10 +48,12 @@ test("/help command sends help text", async () => {
     corpSecret: "s",
     agentId: "1000002",
     proxyUrl: "",
+    apiProxy: "https://wecom-proxy.example.com",
   });
   assert.equal(sent.length, 1);
   assert.match(sent[0].text, /\/help/);
   assert.match(sent[0].text, /AI 助手使用帮助/);
+  assert.equal(sent[0].apiProxy, "https://wecom-proxy.example.com");
 });
 
 test("/status command sends status text", async () => {

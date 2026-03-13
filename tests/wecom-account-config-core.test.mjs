@@ -169,6 +169,20 @@ test("normalizeAccountConfig keeps account-level tool flags", () => {
   assert.deepEqual(normalized.tools, { doc: false, docAutoGrantRequesterCollaborator: false });
 });
 
+test("normalizeAccountConfig keeps apiProxy", () => {
+  const normalized = normalizeAccountConfig({
+    raw: {
+      corpId: "ww_docs",
+      corpSecret: "docs-secret",
+      agentId: 1000088,
+      apiProxy: "https://wecom-proxy.example.com",
+    },
+    accountId: "docs",
+    normalizeWecomWebhookTargetMap,
+  });
+  assert.equal(normalized.apiProxy, "https://wecom-proxy.example.com");
+});
+
 test("readAccountConfigFromEnv auto-assigns non-default webhookPath when missing", () => {
   const processEnvStub = {
     WECOM_SALES_CORP_ID: "ww_sales",
@@ -183,4 +197,21 @@ test("readAccountConfigFromEnv auto-assigns non-default webhookPath when missing
     normalizeWecomWebhookTargetMap,
   });
   assert.equal(normalized.webhookPath, "/wecom/sales/callback");
+});
+
+test("readAccountConfigFromEnv supports API proxy env vars", () => {
+  const processEnvStub = {
+    WECOM_SALES_CORP_ID: "ww_sales",
+    WECOM_SALES_CORP_SECRET: "sales-secret",
+    WECOM_SALES_AGENT_ID: "1000010",
+    WECOM_SALES_API_PROXY: "https://wecom-proxy.example.com/sales",
+  };
+
+  const normalized = readAccountConfigFromEnv({
+    envVars: {},
+    accountId: "sales",
+    requireEnv: (name) => processEnvStub[name],
+    normalizeWecomWebhookTargetMap,
+  });
+  assert.equal(normalized.apiProxy, "https://wecom-proxy.example.com/sales");
 });

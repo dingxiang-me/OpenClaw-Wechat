@@ -79,7 +79,7 @@ export function createWecomCommandHandlers({
     throw new Error("createWecomCommandHandlers: resolveWecomBotConfig is required");
   }
 
-  async function handleHelpCommand({ api, fromUser, corpId, corpSecret, agentId, proxyUrl }) {
+  async function handleHelpCommand({ api, fromUser, corpId, corpSecret, agentId, proxyUrl, apiProxy }) {
     const helpText = `🤖 AI 助手使用帮助
 
 可用命令：
@@ -91,11 +91,20 @@ export function createWecomCommandHandlers({
 直接发送消息即可与 AI 对话。
 支持发送图片，AI 会分析图片内容。`;
 
-    await sendWecomText({ corpId, corpSecret, agentId, toUser: fromUser, text: helpText, proxyUrl, logger: api.logger });
+    await sendWecomText({
+      corpId,
+      corpSecret,
+      agentId,
+      toUser: fromUser,
+      text: helpText,
+      proxyUrl,
+      apiProxy,
+      logger: api.logger,
+    });
     return true;
   }
 
-  async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId, accountId, proxyUrl }) {
+  async function handleStatusCommand({ api, fromUser, corpId, corpSecret, agentId, accountId, proxyUrl, apiProxy }) {
     const config = getWecomConfig(api, accountId);
     const accountIds = listWecomAccountIds(api);
     const webhookTargetAliases = listWebhookTargetAliases(config);
@@ -144,6 +153,7 @@ export function createWecomCommandHandlers({
       text: statusText,
       logger: api.logger,
       proxyUrl,
+      apiProxy,
     });
     return true;
   }

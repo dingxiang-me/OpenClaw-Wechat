@@ -247,6 +247,7 @@ export function createWecomChannelPlugin({
           text,
           logger: runtime?.logger,
           proxyUrl: config.outboundProxy,
+          apiProxy: config.apiProxy,
         });
         runtime?.logger?.info?.(`wecom: outbound sendText target=${formatWecomTargetForLog(target)}`);
         return { ok: true, provider: "wecom" };
@@ -261,6 +262,7 @@ export function createWecomChannelPlugin({
         }
         const config = getWecomConfig({ config: runtime?.config }, accountId);
         const proxyUrl = config?.outboundProxy;
+        const apiProxy = config?.apiProxy;
         if (target.webhook) {
           const webhookMediaResult = await sendWecomWebhookMediaBatch({
             webhook: target.webhook,
@@ -306,6 +308,7 @@ export function createWecomChannelPlugin({
           mediaType,
           logger: runtime?.logger,
           proxyUrl,
+          apiProxy,
         });
         if (mediaResult.failed.length > 0) {
           runtime?.logger?.warn?.(`wecom: failed to send ${mediaResult.failed.length} outbound media item(s)`);
@@ -322,6 +325,7 @@ export function createWecomChannelPlugin({
             text,
             logger: runtime?.logger,
             proxyUrl,
+            apiProxy,
           });
         }
         return { ok: true };

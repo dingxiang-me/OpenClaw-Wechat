@@ -24,7 +24,19 @@ export function createWecomApiSenders({
     sendWecomTypedMessage,
   });
 
-  async function sendWecomImage({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl }) {
+  async function sendWecomImage({
+    corpId,
+    corpSecret,
+    agentId,
+    toUser,
+    toParty,
+    toTag,
+    chatId,
+    mediaId,
+    logger,
+    proxyUrl,
+    apiProxy,
+  }) {
     return sendWecomTypedMessage({
       corpId,
       corpSecret,
@@ -39,6 +51,7 @@ export function createWecomApiSenders({
       },
       logger,
       proxyUrl,
+      apiProxy,
       errorPrefix: "WeCom image send failed",
     });
   }
@@ -56,6 +69,7 @@ export function createWecomApiSenders({
     description,
     logger,
     proxyUrl,
+    apiProxy,
   }) {
     const videoPayload = {
       media_id: mediaId,
@@ -76,11 +90,24 @@ export function createWecomApiSenders({
       },
       logger,
       proxyUrl,
+      apiProxy,
       errorPrefix: "WeCom video send failed",
     });
   }
 
-  async function sendWecomFile({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl }) {
+  async function sendWecomFile({
+    corpId,
+    corpSecret,
+    agentId,
+    toUser,
+    toParty,
+    toTag,
+    chatId,
+    mediaId,
+    logger,
+    proxyUrl,
+    apiProxy,
+  }) {
     return sendWecomTypedMessage({
       corpId,
       corpSecret,
@@ -95,11 +122,24 @@ export function createWecomApiSenders({
       },
       logger,
       proxyUrl,
+      apiProxy,
       errorPrefix: "WeCom file send failed",
     });
   }
 
-  async function sendWecomVoice({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl }) {
+  async function sendWecomVoice({
+    corpId,
+    corpSecret,
+    agentId,
+    toUser,
+    toParty,
+    toTag,
+    chatId,
+    mediaId,
+    logger,
+    proxyUrl,
+    apiProxy,
+  }) {
     return sendWecomTypedMessage({
       corpId,
       corpSecret,
@@ -114,6 +154,7 @@ export function createWecomApiSenders({
       },
       logger,
       proxyUrl,
+      apiProxy,
       errorPrefix: "WeCom voice send failed",
     });
   }

@@ -29,6 +29,7 @@ export function createWecomTypedMessageSender({
     payload,
     logger,
     proxyUrl,
+    apiProxy,
     errorPrefix,
   }) {
     return apiLimiter.execute(async () => {
@@ -42,6 +43,7 @@ export function createWecomTypedMessageSender({
         chatId,
         msgType,
         payload,
+        apiProxy,
       });
       const sendRes = await fetchWithRetry(
         sendUrl,

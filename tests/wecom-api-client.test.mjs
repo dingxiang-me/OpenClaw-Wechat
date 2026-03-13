@@ -92,6 +92,24 @@ test("buildWecomMessageSendRequest supports app chat and direct targets", () => 
   assert.equal(appChat.isAppChat, true);
 });
 
+test("buildWecomMessageSendRequest replaces WeCom host with apiProxy", () => {
+  const { client } = createClient();
+
+  const direct = client.buildWecomMessageSendRequest({
+    accessToken: "access-token",
+    agentId: "1000002",
+    toUser: "alice",
+    msgType: "text",
+    payload: { text: { content: "hello" } },
+    apiProxy: "https://wecom-proxy.example.com/custom",
+  });
+
+  assert.equal(
+    direct.sendUrl,
+    "https://wecom-proxy.example.com/custom/cgi-bin/message/send?access_token=access-token",
+  );
+});
+
 test("attachWecomProxyDispatcher attaches dispatcher for wecom api or forced proxy", () => {
   const { client, fakeProxyInstances } = createClient();
 

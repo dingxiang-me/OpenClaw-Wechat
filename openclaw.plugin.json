@@ -13,7 +13,7 @@
     "type": "object",
     "additionalProperties": false,
     "patternProperties": {
-      "^(?!(name|enabled|corpId|corpSecret|agentId|callbackToken|token|callbackAesKey|encodingAesKey|webhookPath|agent|bot|delivery|webhookBot|stream|observability|outboundProxy|webhooks|allowFrom|allowFromRejectMessage|adminUsers|commandAllowlist|commandBlockMessage|commands|workspaceTemplate|groupChat|dynamicAgent|dynamicAgents|dm|debounce|streaming|voiceTranscription|defaultAccount|tools|accounts)$)[A-Za-z0-9_-]+$": {
+      "^(?!(name|enabled|corpId|corpSecret|agentId|callbackToken|token|callbackAesKey|encodingAesKey|webhookPath|agent|bot|delivery|webhookBot|stream|observability|outboundProxy|apiProxy|webhooks|allowFrom|allowFromRejectMessage|adminUsers|commandAllowlist|commandBlockMessage|commands|workspaceTemplate|groupChat|dynamicAgent|dynamicAgents|dm|debounce|streaming|voiceTranscription|defaultAccount|tools|accounts)$)[A-Za-z0-9_-]+$": {
         "type": "object",
         "description": "兼容旧配置：inline 多账户（推荐迁移到 channels.wecom.accounts.<id>）"
       }
@@ -405,6 +405,10 @@
       "outboundProxy": {
         "type": "string",
         "description": "可选：WeCom 出站 API 代理（如 http://127.0.0.1:7890）"
+      },
+      "apiProxy": {
+        "type": "string",
+        "description": "可选：WeCom 发送 API 代理地址（替换 https://qyapi.weixin.qq.com）"
       },
       "defaultAccount": {
         "type": "string",
@@ -1146,6 +1150,10 @@
             "outboundProxy": {
               "type": "string",
               "description": "可选：该账户专用 WeCom 出站 API 代理（覆盖 channels.wecom.outboundProxy）"
+            },
+            "apiProxy": {
+              "type": "string",
+              "description": "可选：该账户专用 WeCom 发送 API 代理地址（覆盖 channels.wecom.apiProxy）"
             },
             "tools": {
               "type": "object",

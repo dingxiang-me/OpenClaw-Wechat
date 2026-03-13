@@ -45,6 +45,11 @@ const localizedUiHints = {
     label: "WeCom 出站代理",
     placeholder: "http://127.0.0.1:7890",
   },
+  apiProxy: {
+    label: "WeCom API 代理地址",
+    help: "仅替换消息发送接口的基础地址，用于代理 https://qyapi.weixin.qq.com。",
+    placeholder: "https://wecom-proxy.example.com",
+  },
   defaultAccount: {
     label: "默认账号",
     help: "文档工具等多账号能力未显式指定账号时优先使用该账号。",
@@ -90,6 +95,9 @@ const localizedUiHints = {
   },
   "accounts.*.webhookPath": {
     label: "账号回调路径",
+  },
+  "accounts.*.apiProxy": {
+    label: "账号 WeCom API 代理地址",
   },
   "accounts.*.tools": {
     label: "账号工具能力",
