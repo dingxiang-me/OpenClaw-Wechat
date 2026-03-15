@@ -1,0 +1,20 @@
+{
+  "name": "@dingxiang-me/openclaw-wecom-cli",
+  "version": "2.3.0",
+  "type": "module",
+  "description": "One-command installer and onboarding CLI for OpenClaw-Wechat.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "openclaw-wecom-cli": "./bin/openclaw-wecom-cli.mjs"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "dependencies": {
+    "@dingxiang-me/openclaw-wechat": "^2.3.0"
+  }
+}

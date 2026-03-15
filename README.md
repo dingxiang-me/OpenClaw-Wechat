@@ -12,7 +12,7 @@ OpenClaw-Wechat 是一个面向 OpenClaw 的企业微信渠道插件，支持两
 
 ## 目录
 
-- [接入更新（v2.1.0）](#接入更新v210)
+- [可靠投递更新（v2.2.0）](#可靠投递更新v220)
 - [功能概览](#功能概览)
 - [模式对比](#模式对比)
 - [5 分钟极速上手](#5-分钟极速上手)
@@ -33,29 +33,37 @@ OpenClaw-Wechat 是一个面向 OpenClaw 的企业微信渠道插件，支持两
 - [FAQ](#faq)
 - [版本与贡献](#版本与贡献)
 
-## 接入更新（v2.1.0）
+## 可靠投递更新（v2.2.0）
 
-这版不是继续堆新平台能力，而是把接入体验收口到“更像 OpenClaw 原生渠道”的状态。
+这版重点不在接入元信息，而是把 WeCom 回复链路补成“可感知、可补发、可诊断”的可靠投递。
 
 ### 这版新增了什么
 
 | 项目 | 结果 |
 |---|---|
-| 私聊配对审批 | 新增 `dm.mode=pairing`，首次私聊会生成 OpenClaw 原生配对审批 |
-| Quickstart 元信息 | 渠道 metadata 补齐 `detailLabel`、`systemImage`、`quickstartAllowFrom` |
-| `/status` 可读性 | 优先展示 `收消息 / 回消息 / 主动发送 / 媒体 / 语音 / 文档` 准备情况 |
-| Selfcheck 摘要 | `wecom:selfcheck` / `wecom:agent:selfcheck` / `wecom:bot:selfcheck` 新增 `readiness` 与 `routing` 摘要 |
-| 路由可见性 | 明确显示当前是否命中 `bindings` 或 `dynamicAgent` |
-| 长连接日志降噪 | 正常的 connect / opened / subscribed 改为 `debug`，减少默认噪音 |
+| 可靠投递状态 | `/status` 新增 `24h 窗口 / 主动发送额度 / Pending Reply` 摘要 |
+| Pending Reply | 最终回复投递失败后自动入队，支持定时重试和下次入站补发 |
+| Pending Reply 持久化 | 可选落盘，gateway 重启后继续补发未送达的最终回复 |
+| 配额感知 | 统一区分 `窗口过期 / 额度不足 / 传输失败 / 目标无效` |
+| 推理展示策略 | `delivery.reasoning` 可控制 `<think>` 内容分离显示、合并到最终回复或隐藏 |
+| Selfcheck 摘要 | `wecom:selfcheck` / `wecom:agent:selfcheck` / `wecom:bot:selfcheck` 增加 `reliable-delivery` 摘要 |
+| 群策略诊断 | `/status` 与 selfcheck 会显示当前群规则来源、准入模式以及白名单是否生效 |
+| 最终回复格式 | `delivery.replyFormat` 支持 `auto / text / markdown`，会按链路选择纯文本或 markdown 能力 |
+| 媒体指令 | 模型最终回复支持 `MEDIA:` / `FILE:` 指令，自动回传图片/文件并隐藏指令行 |
+| Bot/Agent 收口 | Bot fallback 与 Agent 最终回复统一纳入可靠投递跟踪 |
+| 长连接日志降噪 | 正常的 connect / opened / subscribed 继续保持 `debug`，默认日志更安静 |
 
 ### 这版对接入有什么实际影响
 
-- 新用户现在可以按最小配置先跑通，再决定是否启用多账号、动态路由和文档工具。
-- 需要私聊审批时，不再只能靠手写 `allowFrom`，可以直接用 `pairing` 模式接到 OpenClaw 审批流。
-- `/status` 和 selfcheck 先回答“能不能收、能不能回、能不能发”，再展开工程细节。
-- Bot 长连接默认日志更安静，排障时再开 `debug` 看正常心跳和订阅细节。
+- 现在能直接看出当前会话是否仍在 `24h` 回复窗口内，以及是否存在待补发的最终回复。
+- Bot / Agent 不再只是超时兜底，而是会把失败结果分类并进入 Pending Reply 重试。
+- selfcheck 会明确告诉你可靠投递追踪是否打开、是否持久化，以及当前推理展示模式。
+- 群聊策略不再只能靠日志反推，`/status` 和 selfcheck 会直接说明当前命中的群规则来源与白名单是否真的在限制触发。
+- Bot 长连接默认日志仍然更安静，排障时再开 `debug` 看正常心跳和订阅细节。
 
 ### 当前推荐的接入顺序
+
+现在 package / manifest / runtime channel meta 都会暴露同一套 quickstart metadata，便于 installer、quickstart、doctor 和后续集成入口读取同一份推荐模式、starter config 和 setup checklist。
 
 1. 先选一个主入口：
    - Bot 长连接：适合最快跑通对话
@@ -68,7 +76,133 @@ OpenClaw-Wechat 是一个面向 OpenClaw 的企业微信渠道插件，支持两
    - `bindings`
    - `dynamicAgent`
    - `wecom_doc`
-   - 本地语音转写
+
+### Quickstart 命令
+
+推荐入口：
+
+```bash
+npx -y @dingxiang-me/openclaw-wecom-cli install
+```
+
+如果你更想留在仓库内执行同一套流程：
+
+```bash
+npm run wecom:quickstart -- --mode bot_long_connection
+npm run wecom:doctor -- --json
+```
+
+如果你想走交互式向导：
+
+```bash
+npm run wecom:quickstart -- --wizard
+```
+
+如果你已经准备好了 `WECOM_*` / `WECOM_BOT_*` 环境变量，也可以使用兼容性的 env-backed 初始化路径：
+
+```bash
+export WECOM_BOT_LONG_CONNECTION_BOT_ID=your-bot-id
+export WECOM_BOT_LONG_CONNECTION_SECRET=your-bot-secret
+openclaw channels add --channel wecom --use-env
+```
+
+这条 `channels add --use-env` 路径不需要任何 OpenClaw core 补丁，但它只适合 env-backed 初始化。  
+日常文档、排障和安装说明都默认以 `installer / quickstart / doctor` 为主路径；如果你需要完整接入和迁移闭环，仍然优先用 `npx -y @dingxiang-me/openclaw-wecom-cli install`。
+
+常见用法：
+
+```bash
+# 默认推荐模式：Bot 长连接
+npm run wecom:quickstart -- --json
+
+# 交互式选择 mode / dm / 群策略，并决定是否直接写入配置
+npm run wecom:quickstart -- --wizard
+
+# 把推荐 selfcheck 也串起来跑；如仍有占位项，默认会先阻止执行
+npm run wecom:quickstart -- --run-checks
+
+# 即使还没填完占位项，也强制执行推荐检查
+npm run wecom:quickstart -- --run-checks --force-checks
+
+# 把修复用的 configPatch 和 .env 模板直接写到目录里
+npm run wecom:quickstart -- --run-checks --repair-dir ./.wecom-repair
+
+# 直接把生成的 repair configPatch 合并进目标 openclaw.json
+npm run wecom:quickstart -- --run-checks --apply-repair
+
+# 先预览将要修改的字段，再确认是否真的应用 repair patch
+npm run wecom:quickstart -- --run-checks --confirm-repair
+
+# 单独盘点当前配置里的 legacy / mixed-layout 问题，并生成迁移 patch
+npm run wecom:migrate -- --json
+
+# 一次性聚合安装状态、迁移状态、自检、长连接探针和回调矩阵
+npm run wecom:doctor -- --json
+
+# 跑本地黑盒 onboarding E2E：install -> doctor -> fix -> rerun
+npm run test:e2e:local
+
+# 检查 root 包、installer CLI、manifest 和 npm pack 产物是否一致
+npm run test:release
+
+# 生成 sales 账号的 Agent 回调模板
+npm run wecom:quickstart -- --mode agent_callback --account sales --dm-mode allowlist
+
+# 直接带一份群白名单模板（值班群/运营群）
+npm run wecom:quickstart -- --mode hybrid --group-profile allowlist_template --group-chat-id wr-ops-room --group-allow ops_lead,oncall_user
+
+# 直接合并写入 openclaw.json，并自动备份原文件
+npm run wecom:quickstart -- --mode hybrid --write
+```
+
+`--group-profile` 可选值有：`inherit`、`mention_only`、`open_direct`、`allowlist_template`、`deny`。  
+默认行为只打印 starter config 和检查清单；只有显式传 `--write` 才会写文件。
+`--wizard` 会把当前 CLI 参数当作默认值，然后逐步提问，最后再确认是否写入 `openclaw.json`。
+`--run-checks` 会按当前 mode 的推荐命令执行自检；若 starter config 里还有占位项，默认会阻止执行，除非显式传 `--force-checks`。
+`--apply-repair` 会把 `postcheck.repairArtifacts.configPatch` 直接 merge 到 `--config` 指向的配置文件，并自动备份原文件。
+`--confirm-repair` 会先打印将要修改的字段，再询问是否真正执行 `--apply-repair`；交互提示走 `stderr`，不会污染 `--json` 的机器输出。
+`npm run wecom:migrate -- --json` 不再生成 starter config，只做当前安装 / 迁移状态盘点，适合排查 `legacy_config / mixed_layout / stale_package`。
+`npm run wecom:migrate -- --json` 和 `npm run wecom:doctor -- --json` 现在还会给出 `migrationSource`，直接区分 `official-wecom / sunnoy-wecom / legacy-openclaw-wechat / mixed-source`。
+`npm run wecom:doctor -- --json` 会把 `migration + selfcheck + agent/bot e2e + longconn probe + callback matrix` 聚合成一份报告；可以加 `--skip-network` 先只看本地安装 / 迁移问题。
+`npm run wecom:doctor -- --fix --skip-network --json` 会先应用当前可落盘的本地 fix patch（例如 migration patch、`plugins.allow/entries`），再用修正后的配置重跑 doctor。
+`npm run wecom:doctor -- --confirm-fix --skip-network --json` 会先预览将要修改的字段，再确认是否真正写回。
+`npm run wecom:quickstart -- --json` 现在也会带 `sourcePlaybook`，把当前来源推荐的检查顺序、占位项提示和默认 repair 策略一起返回。
+`npx -y @dingxiang-me/openclaw-wecom-cli install` 会先尝试执行 `openclaw plugins install @dingxiang-me/openclaw-wechat`，再写入 starter config，并可选继续跑本地 doctor。
+`npm run test:e2e:local` 会黑盒验证 `install -> doctor -> fix -> rerun` 这条本地闭环，不依赖真实企微网络。
+`npm run test:release` 会校验 root 包、installer CLI、manifest、运行时版本常量和 `npm pack --dry-run` 产物，适合作为发版前门禁。
+如果当前配置更像官方插件 / sunnoy / 旧版 OpenClaw-Wechat，安装器会在 `--json` 输出里直接给出 `migration.guide`、来源说明、legacy 字段路径和回滚命令。
+如果你想人工确认是否附带执行 `doctor --fix`，可以加 `--confirm-doctor-fix`；要强制不附带 `--fix`，可加 `--no-doctor-fix`，自动确认则用 `--yes`。
+安装器的 `--json` 现在还会直接输出 `actions`，把来源审阅、迁移 patch、回滚和重跑 doctor 这些步骤结构化暴露出来。
+如果你没有显式传 `--mode`，安装器还会按来源和现有能力自动选择 `bot_long_connection / agent_callback / hybrid`，并在 `sourceProfile` 里说明为什么这么选。
+`sourceProfile` 现在还会给出来源专属 `checkOrder` 和 `repairDefaults`。例如官方 / legacy 来源默认允许自动附带 `doctor --fix`，而 sunnoy / mixed-source 来源默认只给修复建议，不会直接附带 `--fix`。
+仓库现在也自带两条 GitHub Actions 门禁：`Onboarding E2E` 跑本地安装闭环，`Release Check` 跑版本/打包一致性；tag 发布会走独立 release workflow，顺序发布插件包和 installer CLI。
+
+`--json` 输出会额外给出：
+
+- `placeholders`：还有哪些模板占位项没替换
+- `setupChecklist`：下一步应该执行的管理台配置和自检命令
+- `actions`：可被 CLI / UI 直接消费的结构化 setup flow
+- `installState / migrationState`：当前是 fresh、legacy_config、stale_package、mixed_layout 还是 ready
+- `migrationSource / migrationSourceSummary`：当前更接近官方插件、sunnoy 配置、legacy-openclaw-wechat，还是 mixed-source
+- `fix`：doctor `--fix` 是否已提示、确认、落盘，以及真实 `changedPaths`
+- `sourcePlaybook`：quickstart 基于当前来源生成的推荐检查顺序、占位提示和 repair 默认值
+- `sourceProfile.checkOrder / sourceProfile.repairDefaults`：当前来源推荐的检查顺序，以及 installer 默认采用的修复策略
+- `warnings`：当前 mode / group profile 下仍需确认的风险点
+- `postcheck`：推荐 selfcheck 的执行结果、阻塞原因或汇总状态
+- `postcheck.remediation`：把失败检查翻译成可执行的修复建议
+- `postcheck.repairArtifacts`：自动生成最小 `configPatch` 和 `.env` 模板，便于直接修复当前检查暴露的问题
+- `postcheck.repairPlan`：按项列出 repair patch 的配置变更、env 变更和会写出的文件
+- `migration.configPatch / migration.envTemplate`：当前 legacy 配置可直接迁移到的新布局建议
+
+如果再加 `--repair-dir <path>`，quickstart 还会把这些修复产物直接落盘成：
+
+- `wecom.config-patch.json`
+- `wecom.account-patch.json`
+- `wecom.env.template`
+- `README.txt`
+
+如果加的是 `--apply-repair`，则会在输出中额外看到 `repairApply`，说明 repair patch 是否已实际写入目标配置。
+如果加的是 `--confirm-repair`，`repairApply` 里还会带 `prompted/confirmed`，方便区分“用户拒绝”与“自动执行”；真正写入的字段会出现在 `repairApply.changedPaths`。
 
 ## 5 分钟极速上手
 
@@ -76,11 +210,21 @@ OpenClaw-Wechat 是一个面向 OpenClaw 的企业微信渠道插件，支持两
 
 ### Step 1. 安装插件
 
+最快入口：
+
+```bash
+npx -y @dingxiang-me/openclaw-wecom-cli install
+```
+
+它会复用仓库内的 quickstart / migrate / doctor 能力，把“安装插件 + 写 starter config + 跑本地体检”串成一次执行。
+
+如果你只想单独安装插件包：
+
 ```bash
 openclaw plugins install @dingxiang-me/openclaw-wechat
 ```
 
-> 最低建议版本：`2.1.0`。如果 `openclaw.json` 里的 `plugins.installs.openclaw-wechat` 仍显示 `1.7.x`，请先升级或重装；旧包不会正确注册 `wecom` channel 元数据。
+> 最低建议版本：`2.3.0`。如果 `openclaw.json` 里的 `plugins.installs.openclaw-wechat` 仍显示 `1.7.x`，请先升级或重装；旧包不会正确注册 `wecom` channel 元数据，也不包含当前这套接入、迁移与可靠投递能力。
 
 如果你是在本地开发或要直接跑仓库源码，再用下面这套：
 
@@ -554,12 +698,13 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | `webhookPath` | string | `/wecom/callback` | Agent 回调路径（非 default 账户未配置时自动生成 `/wecom/<accountId>/callback`） |
 | `agent` | object | - | 兼容旧配置：`agent.corpId/corpSecret/agentId`（与顶层 Agent 字段等价） |
 | `outboundProxy` | string | - | WeCom 出站代理 |
+| `apiBaseUrl` | string | `https://qyapi.weixin.qq.com` | 可选：覆盖默认 WeCom API Base URL |
 | `defaultAccount` | string | - | 多账号下的默认账号 ID（文档工具等优先使用） |
 | `tools.doc` | boolean | `true` | 是否启用 `wecom_doc` 文档工具 |
 | `webhooks` | object | - | 命名 Webhook 目标映射（如 `{ "ops": "https://...key=xxx" }`） |
 | `accounts` | object | - | 多账户配置（支持 `accounts.<id>.bot` 独立 Bot 配置） |
 
-兼容说明：支持旧字段与旧结构迁移：`name`、`token` / `encodingAesKey`、`agent.*`、`dynamicAgents.*`、`dm.createAgentOnFirstMessage`、`dm.allowFrom`、`workspaceTemplate`、`commandAllowlist/commandBlockMessage`、`commands.blockMessage`、以及 inline 账户写法 `channels.wecom.<accountId>`。新配置建议优先使用 `accounts.<id>`、`callbackToken/callbackAesKey`、`commands.*` 与 `dynamicAgent.*`。
+兼容说明：支持旧字段与旧结构迁移：`name`、`token` / `encodingAesKey`、`agent.*`、`dynamicAgents.*`、`dm.createAgentOnFirstMessage`、`dm.allowFrom`、`workspaceTemplate`、`commandAllowlist/commandBlockMessage`、`commands.blockMessage`、inline 账户写法 `channels.wecom.<accountId>`，以及官方 / sunnoy 风格的 `botId`、`secret`、`network.egressProxyUrl`、`network.apiBaseUrl`。新配置建议优先使用 `accounts.<id>`、`callbackToken/callbackAesKey`、`bot.longConnection.*`、`outboundProxy/apiBaseUrl`、`commands.*` 与 `dynamicAgent.*`。
 
 提示：`accounts.<id>` 现在支持 Bot-only 账号（仅配置 `bot.*`），不再强制要求 `corpId/corpSecret/agentId`。
 兼容提示：当使用默认新路径时会自动附加 legacy alias，便于旧回调地址平滑迁移：Agent 默认路径会附加 `/webhooks/app`（多账号为 `/webhooks/app/<id>`），Bot 默认路径会附加 `/webhooks/wecom`（多账号为 `/webhooks/wecom/<id>`）。若 alias 与另一类路由冲突会自动跳过并告警。
@@ -633,6 +778,8 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | `longConnection` | object | - | 该账户专用长连接配置（覆盖全局 `bot.longConnection`） |
 | `card` | object | - | 该账户专用卡片回包配置（覆盖全局 `bot.card`） |
 
+兼容提示：如果你是从官方插件或 sunnoy 配置直接迁移，也可以先保留 `channels.wecom.botId/secret` 或 `accounts.<id>.botId/secret`，以及 `network.egressProxyUrl/apiBaseUrl`；插件会在运行时兼容读取，`npm run wecom:migrate -- --json` 会给出归一化 patch。
+
 ### 多账户文档工具覆盖（`channels.wecom.accounts.<id>.tools`）
 
 | 键 | 类型 | 默认 | 说明 |
@@ -651,6 +798,8 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | 私聊策略 | `dm.mode` + `dm.allowFrom` + `dm.rejectMessage` | 控制私聊开放/白名单/配对审批/拒绝 |
 | 事件策略 | `events.enabled` + `events.enterAgentWelcomeEnabled` + `events.enterAgentWelcomeText` | 控制事件处理与 enter_agent 欢迎语 |
 | 群聊触发 | `groupChat.enabled` + `triggerMode` + `mentionPatterns` + `triggerKeywords` | 控制群消息触发条件（自建应用支持 `direct/mention/keyword`；Bot 模式按平台限制固定 `mention`） |
+| 群聊准入策略 | `groupPolicy` + `groupChat.policy` + `groups.<chatId>.policy` | 显式控制 `open / allowlist / deny`；支持账户级覆盖与按群覆盖 |
+| 群聊成员授权 | `groupAllowFrom` + `groups.<chatId>.allowFrom` | 与 `allowlist` 搭配使用，控制哪些群成员可以触发机器人；支持账户级覆盖与按群覆盖 |
 | 动态路由 | `dynamicAgent.*`（兼容 `dynamicAgents.*`、`dm.createAgentOnFirstMessage`） | 动态 Agent + workspace bootstrap 播种 |
 
 ### 吞吐与稳定性
@@ -660,6 +809,9 @@ node ./scripts/wecom-bot-selfcheck.mjs --help
 | 文本防抖 | `debounce.enabled/windowMs/maxBatch` | 合并短时间多条文本 |
 | Agent 增量回包 | `streaming.enabled/minChars/minIntervalMs` | 多消息模拟流式 |
 | 异步补发 | `WECOM_LATE_REPLY_WATCH_MS/POLL_MS` | dispatch 超时后补发最终回复 |
+| Pending Reply 持久化 | `delivery.pendingReply.persist/storeFile` | 重启后恢复未送达最终回复；未指定 `storeFile` 时自动写入 OpenClaw state 目录 |
+| 推理展示 | `delivery.reasoning.mode/title/maxChars` | 控制 `<think>` / reasoning 分离显示、附加到最终回复，或完全隐藏 |
+| 最终回复格式 | `delivery.replyFormat` | `auto / text / markdown`；优先在支持的 WeCom 链路上保留 markdown，其余链路自动回退纯文本 |
 | 观测统计 | `observability.enabled/logPayloadMeta` | 记录入站/回包/错误并在 `/status` 展示 |
 
 ### 语音转写（本地）
@@ -1223,10 +1375,43 @@ npm run wecom:bot:selfcheck -- --all-accounts
 {
   "channels": {
     "wecom": {
+      "groupPolicy": "open",
       "groupChat": {
         "enabled": true,
         "triggerMode": "direct"
       }
+    }
+  }
+}
+```
+
+如果还要限制“只有指定群成员能触发”，可以再加一层群聊成员授权：
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "groupPolicy": "allowlist",
+      "groupAllowFrom": ["alice", "bob"],
+      "groups": {
+        "wr9N1x...": {
+          "policy": "allowlist",
+          "allowFrom": ["ops_lead"],
+          "rejectMessage": "当前群仅限值班同学触发。"
+        }
+      }
+    }
+  }
+}
+```
+
+如果你要“一刀切关闭群聊处理”，直接用：
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "groupPolicy": "deny"
     }
   }
 }

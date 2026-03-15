@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: "Publish npm packages"
+        type: boolean
+        default: false
+      npm_tag:
+        description: "npm dist-tag"
+        type: choice
+        default: latest
+        options:
+          - latest
+          - next
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run onboarding e2e
+        run: npm run test:e2e:local
+
+      - name: Run release consistency check
+        run: npm run test:release
+
+      - name: Pack plugin tarball
+        run: npm pack --dry-run
+
+      - name: Pack installer tarball
+        run: npm pack --dry-run
+        working-directory: packages/openclaw-wecom-cli
+
+  publish-plugin:
+    name: Publish Plugin
+    runs-on: ubuntu-latest
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish_npm == true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish plugin package
+        run: npm publish --access public --tag "${NPM_DIST_TAG}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_DIST_TAG: ${{ inputs.npm_tag || 'latest' }}
+
+  publish-installer:
+    name: Publish Installer CLI
+    runs-on: ubuntu-latest
+    needs:
+      - verify
+      - publish-plugin
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish_npm == true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish installer CLI
+        run: npm publish --access public --tag "${NPM_DIST_TAG}"
+        working-directory: packages/openclaw-wecom-cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_DIST_TAG: ${{ inputs.npm_tag || 'latest' }}
+
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - verify
+      - publish-plugin
+      - publish-installer
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

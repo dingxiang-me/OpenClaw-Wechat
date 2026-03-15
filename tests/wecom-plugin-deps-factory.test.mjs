@@ -120,6 +120,7 @@ test("createPluginRouteRuntimeDeps maps route/runtime dependencies", () => {
     resolveWecomWebhookBotDeliveryPolicy: fn,
     resolveWecomObservabilityPolicy: fn,
     resolveWecomDynamicAgentPolicy: fn,
+    initializeWecomReliableDeliveryPersistence: fn,
     listEnabledWecomAccounts: fn,
     getWecomConfig: fn,
     wecomChannelPlugin: { id: "wecom" },
@@ -127,6 +128,7 @@ test("createPluginRouteRuntimeDeps maps route/runtime dependencies", () => {
   assert.equal(typeof deps.routeRegistrarDeps, "object");
   assert.equal(typeof deps.registerRuntimeDeps, "object");
   assert.equal(deps.routeRegistrarDeps.readRequestBody, fn);
+  assert.equal(deps.registerRuntimeDeps.initializeWecomReliableDeliveryPersistence, fn);
   assert.equal(deps.registerRuntimeDeps.listEnabledWecomAccounts, fn);
   assert.equal(deps.registerRuntimeDeps.getWecomConfig, fn);
 });

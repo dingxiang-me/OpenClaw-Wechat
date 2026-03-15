@@ -1,5 +1,8 @@
 import crypto from "node:crypto";
 import { buildDefaultBotWebhookPath } from "./wecom/account-paths.js";
+import { resolveWecomApiBaseUrl } from "./wecom/network-config.js";
+
+export { resolveWecomApiBaseUrl } from "./wecom/network-config.js";
 
 export const WECOM_TEXT_BYTE_LIMIT = 2000;
 export const INBOUND_DEDUPE_TTL_MS = 5 * 60 * 1000;
@@ -53,14 +56,20 @@ const DEFAULT_DELIVERY_FALLBACK_ORDER = Object.freeze([
 const DEFAULT_BOT_CARD_MODE = "markdown";
 const BOT_CARD_MODE_SET = new Set(["markdown", "template_card"]);
 const DELIVERY_FALLBACK_LAYER_SET = new Set(DEFAULT_DELIVERY_FALLBACK_ORDER);
+const DELIVERY_REASONING_MODE_SET = new Set(["separate", "append", "hidden"]);
+const DELIVERY_REPLY_FORMAT_SET = new Set(["auto", "text", "markdown"]);
 const DYNAMIC_AGENT_MAP_SPLITTER = /[,\n]/;
 const GROUP_CHAT_TRIGGER_MODE_SET = new Set(["direct", "mention", "keyword"]);
+const GROUP_POLICY_MODE_SET = new Set(["open", "allowlist", "deny", "disabled"]);
 const DM_POLICY_MODE_SET = new Set(["open", "allowlist", "pairing", "deny"]);
 const DYNAMIC_AGENT_MODE_SET = new Set(["mapping", "deterministic", "hybrid"]);
 const DYNAMIC_AGENT_ID_STRATEGY_SET = new Set(["readable-hash"]);
 const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "name",
   "enabled",
+  "botId",
+  "botid",
+  "secret",
   "corpId",
   "corpSecret",
   "agentId",
@@ -72,9 +81,14 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "outboundProxy",
   "proxyUrl",
   "proxy",
+  "network",
+  "apiBaseUrl",
   "webhooks",
   "allowFrom",
   "allowFromRejectMessage",
+  "groupPolicy",
+  "groupAllowFrom",
+  "groupAllowFromRejectMessage",
   "rejectUnauthorizedMessage",
   "adminUsers",
   "commandAllowlist",
@@ -82,6 +96,7 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "commands",
   "workspaceTemplate",
   "groupChat",
+  "groups",
   "dynamicAgent",
   "dynamicAgents",
   "dm",
@@ -288,6 +303,48 @@ function readAllowFromRejectMessageEnv(envVars, processEnv, accountId = "default
   );
 }
 
+function readGroupAllowFromEnv(envVars, processEnv, accountId = "default") {
+  const normalizedId = normalizeAccountIdForEnv(accountId);
+  const scopedAllowFromKey = normalizedId === "default" ? null : `WECOM_${normalizedId.toUpperCase()}_GROUP_ALLOW_FROM`;
+  const scoped = parseStringList(
+    scopedAllowFromKey ? envVars?.[scopedAllowFromKey] : undefined,
+    scopedAllowFromKey ? processEnv?.[scopedAllowFromKey] : undefined,
+  );
+  if (scoped.length > 0) return scoped;
+  return parseStringList(envVars?.WECOM_GROUP_ALLOW_FROM, processEnv?.WECOM_GROUP_ALLOW_FROM);
+}
+
+function readGroupPolicyEnv(envVars, processEnv, accountId = "default") {
+  const scopedAccountId = String(accountId ?? "default")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_");
+  return pickFirstNonEmptyString(
+    envVars?.[`WECOM_${scopedAccountId}_GROUP_POLICY`],
+    processEnv?.[`WECOM_${scopedAccountId}_GROUP_POLICY`],
+    envVars?.WECOM_GROUP_POLICY,
+    processEnv?.WECOM_GROUP_POLICY,
+  );
+}
+
+function readGroupAllowFromRejectMessageEnv(envVars, processEnv, accountId = "default") {
+  const normalizedId = normalizeAccountIdForEnv(accountId);
+  const scopedRejectMessageKey =
+    normalizedId === "default" ? null : `WECOM_${normalizedId.toUpperCase()}_GROUP_ALLOW_FROM_REJECT_MESSAGE`;
+  const scopedGroupRejectMessageKey =
+    normalizedId === "default" ? null : `WECOM_${normalizedId.toUpperCase()}_GROUP_REJECT_MESSAGE`;
+  return pickFirstNonEmptyString(
+    scopedRejectMessageKey ? envVars?.[scopedRejectMessageKey] : undefined,
+    scopedRejectMessageKey ? processEnv?.[scopedRejectMessageKey] : undefined,
+    scopedGroupRejectMessageKey ? envVars?.[scopedGroupRejectMessageKey] : undefined,
+    scopedGroupRejectMessageKey ? processEnv?.[scopedGroupRejectMessageKey] : undefined,
+    envVars?.WECOM_GROUP_ALLOW_FROM_REJECT_MESSAGE,
+    processEnv?.WECOM_GROUP_ALLOW_FROM_REJECT_MESSAGE,
+    envVars?.WECOM_GROUP_REJECT_MESSAGE,
+    processEnv?.WECOM_GROUP_REJECT_MESSAGE,
+  );
+}
+
 function readDmPolicyModeEnv(envVars, processEnv, accountId = "default") {
   const normalizedId = normalizeAccountIdForEnv(accountId);
   const scopedDmPolicyKey = normalizedId === "default" ? null : `WECOM_${normalizedId.toUpperCase()}_DM_POLICY`;
@@ -383,9 +440,15 @@ function readEventEnterAgentWelcomeTextEnv(envVars, processEnv, accountId = "def
 function readProxyEnv(envVars, processEnv, accountId = "default") {
   const normalizedId = normalizeAccountIdForEnv(accountId);
   const scopedProxyKey = normalizedId === "default" ? null : `WECOM_${normalizedId.toUpperCase()}_PROXY`;
+  const scopedEgressProxyKey =
+    normalizedId === "default" ? null : `WECOM_${normalizedId.toUpperCase()}_EGRESS_PROXY_URL`;
   return pickFirstNonEmptyString(
+    scopedEgressProxyKey ? envVars?.[scopedEgressProxyKey] : undefined,
+    scopedEgressProxyKey ? processEnv?.[scopedEgressProxyKey] : undefined,
     scopedProxyKey ? envVars?.[scopedProxyKey] : undefined,
     scopedProxyKey ? processEnv?.[scopedProxyKey] : undefined,
+    envVars?.WECOM_EGRESS_PROXY_URL,
+    processEnv?.WECOM_EGRESS_PROXY_URL,
     envVars?.WECOM_PROXY,
     processEnv?.WECOM_PROXY,
     processEnv?.HTTPS_PROXY,
@@ -404,11 +467,17 @@ export function resolveWecomProxyConfig({
     accountConfig?.outboundProxy,
     accountConfig?.proxyUrl,
     accountConfig?.proxy,
+    accountConfig?.network?.egressProxyUrl,
+    accountConfig?.network?.proxyUrl,
+    accountConfig?.network?.proxy,
   );
   const fromChannelConfig = pickFirstNonEmptyString(
     channelConfig?.outboundProxy,
     channelConfig?.proxyUrl,
     channelConfig?.proxy,
+    channelConfig?.network?.egressProxyUrl,
+    channelConfig?.network?.proxyUrl,
+    channelConfig?.network?.proxy,
   );
   const fromEnv = readProxyEnv(envVars, processEnv, accountId);
   const resolved = pickFirstNonEmptyString(fromAccountConfig, fromChannelConfig, fromEnv);
@@ -726,6 +795,242 @@ function uniqueAllowFromList(values) {
   return Array.from(deduped);
 }
 
+function asConfigObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function pickFirstStringList(...values) {
+  for (const value of values) {
+    const parsed = parseStringList(value);
+    if (parsed.length > 0) return parsed;
+  }
+  return [];
+}
+
+function pickFirstStringListWithSource(entries = [], fallbackSource = "") {
+  for (const entry of entries) {
+    const parsed = parseStringList(entry?.value);
+    if (parsed.length > 0) {
+      return {
+        values: parsed,
+        source: String(entry?.source ?? "").trim() || fallbackSource,
+      };
+    }
+  }
+  return {
+    values: [],
+    source: fallbackSource,
+  };
+}
+
+function pickFirstNonEmptyStringWithSource(entries = [], fallbackValue = "", fallbackSource = "default") {
+  for (const entry of entries) {
+    const text = String(entry?.value ?? "").trim();
+    if (!text) continue;
+    return {
+      value: text,
+      source: String(entry?.source ?? "").trim() || fallbackSource,
+    };
+  }
+  return {
+    value: String(fallbackValue ?? "").trim(),
+    source: fallbackSource,
+  };
+}
+
+function hasExplicitConfigValue(value) {
+  if (typeof value === "boolean" || typeof value === "number") return true;
+  return String(value ?? "").trim().length > 0;
+}
+
+function resolveBooleanLike(values, fallback) {
+  let resolved = fallback;
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    resolved = parseBooleanLike(values[index], resolved);
+  }
+  return resolved;
+}
+
+function lookupWecomGroupOverrideConfig(groupsConfig, chatId = "") {
+  const normalizedChatId = String(chatId ?? "").trim();
+  const groups = asConfigObject(groupsConfig);
+  if (!normalizedChatId || Object.keys(groups).length === 0) return {};
+  const direct = groups[normalizedChatId];
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) {
+    return direct;
+  }
+  const normalizedLookup = normalizedChatId.toLowerCase();
+  for (const [rawChatId, value] of Object.entries(groups)) {
+    if (String(rawChatId ?? "").trim().toLowerCase() !== normalizedLookup) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    return value;
+  }
+  return {};
+}
+
+function collectConfiguredGroupIds(...values) {
+  const ids = new Set();
+  for (const value of values) {
+    const groups = asConfigObject(value);
+    for (const [rawChatId, entry] of Object.entries(groups)) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const normalizedChatId = String(rawChatId ?? "").trim();
+      if (normalizedChatId) ids.add(normalizedChatId);
+    }
+  }
+  return Array.from(ids);
+}
+
+function resolveGroupScopedTriggerMode(scopeConfigs = [], envVars = {}, processEnv = process.env) {
+  for (const scopeConfig of scopeConfigs) {
+    const scope = asConfigObject(scopeConfig);
+    const triggerModeRaw = String(scope.triggerMode ?? "")
+      .trim()
+      .toLowerCase();
+    if (GROUP_CHAT_TRIGGER_MODE_SET.has(triggerModeRaw)) {
+      return triggerModeRaw;
+    }
+    const requireMention = parseBooleanLike(scope.requireMention, null);
+    if (requireMention === true) return "mention";
+    if (requireMention === false) return "direct";
+  }
+
+  const envTriggerModeRaw = pickFirstNonEmptyString(
+    envVars?.WECOM_GROUP_CHAT_TRIGGER_MODE,
+    processEnv?.WECOM_GROUP_CHAT_TRIGGER_MODE,
+  )
+    .trim()
+    .toLowerCase();
+  if (GROUP_CHAT_TRIGGER_MODE_SET.has(envTriggerModeRaw)) {
+    return envTriggerModeRaw;
+  }
+  const envRequireMention = resolveBooleanLike(
+    [envVars?.WECOM_GROUP_CHAT_REQUIRE_MENTION, processEnv?.WECOM_GROUP_CHAT_REQUIRE_MENTION],
+    false,
+  );
+  return envRequireMention ? "mention" : "direct";
+}
+
+function resolveGroupScopedTriggerDetails(scopeEntries = [], envVars = {}, processEnv = process.env) {
+  for (const entry of scopeEntries) {
+    const scope = asConfigObject(entry?.config);
+    const sourceBase = String(entry?.source ?? "").trim();
+    const triggerModeRaw = String(scope.triggerMode ?? "")
+      .trim()
+      .toLowerCase();
+    if (GROUP_CHAT_TRIGGER_MODE_SET.has(triggerModeRaw)) {
+      return {
+        triggerMode: triggerModeRaw,
+        source: sourceBase ? `${sourceBase}.triggerMode` : "triggerMode",
+      };
+    }
+    const requireMention = parseBooleanLike(scope.requireMention, null);
+    if (requireMention === true || requireMention === false) {
+      return {
+        triggerMode: requireMention ? "mention" : "direct",
+        source: sourceBase ? `${sourceBase}.requireMention` : "requireMention",
+      };
+    }
+  }
+
+  const envTriggerModeCandidates = [
+    ["WECOM_GROUP_CHAT_TRIGGER_MODE", envVars?.WECOM_GROUP_CHAT_TRIGGER_MODE],
+    ["WECOM_GROUP_CHAT_TRIGGER_MODE", processEnv?.WECOM_GROUP_CHAT_TRIGGER_MODE],
+  ];
+  for (const [key, value] of envTriggerModeCandidates) {
+    const normalized = String(value ?? "")
+      .trim()
+      .toLowerCase();
+    if (!GROUP_CHAT_TRIGGER_MODE_SET.has(normalized)) continue;
+    return {
+      triggerMode: normalized,
+      source: `env.${key}`,
+    };
+  }
+
+  const envRequireMentionCandidates = [
+    ["WECOM_GROUP_CHAT_REQUIRE_MENTION", envVars?.WECOM_GROUP_CHAT_REQUIRE_MENTION],
+    ["WECOM_GROUP_CHAT_REQUIRE_MENTION", processEnv?.WECOM_GROUP_CHAT_REQUIRE_MENTION],
+  ];
+  for (const [key, value] of envRequireMentionCandidates) {
+    if (!hasExplicitConfigValue(value)) continue;
+    return {
+      triggerMode: parseBooleanLike(value, false) ? "mention" : "direct",
+      source: `env.${key}`,
+    };
+  }
+
+  return {
+    triggerMode: "direct",
+    source: "default",
+  };
+}
+
+function normalizeWecomGroupPolicyMode(value, fallback = "") {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return fallback;
+  if (normalized === "disabled") return "deny";
+  return GROUP_POLICY_MODE_SET.has(normalized) ? normalized : fallback;
+}
+
+function resolveGroupScopedPolicyMode(scopeConfigs = [], envVars = {}, processEnv = process.env, accountId = "default") {
+  for (const scopeConfig of scopeConfigs) {
+    const scope = asConfigObject(scopeConfig);
+    const mode = normalizeWecomGroupPolicyMode(
+      pickFirstNonEmptyString(scope.policy, scope.groupPolicy),
+      "",
+    );
+    if (mode) return mode;
+  }
+
+  return normalizeWecomGroupPolicyMode(readGroupPolicyEnv(envVars, processEnv, accountId), "");
+}
+
+function resolveGroupScopedPolicyDetails(scopeEntries = [], envVars = {}, processEnv = process.env, accountId = "default") {
+  for (const entry of scopeEntries) {
+    const scope = asConfigObject(entry?.config);
+    const sourceBase = String(entry?.source ?? "").trim();
+    const policyMode = normalizeWecomGroupPolicyMode(scope.policy, "");
+    if (policyMode) {
+      return {
+        policyMode,
+        source: sourceBase ? `${sourceBase}.policy` : "policy",
+      };
+    }
+    const compatMode = normalizeWecomGroupPolicyMode(scope.groupPolicy, "");
+    if (compatMode) {
+      return {
+        policyMode: compatMode,
+        source: sourceBase ? `${sourceBase}.groupPolicy` : "groupPolicy",
+      };
+    }
+  }
+
+  const scopedKey = accountId === "default" ? "" : `WECOM_${String(accountId ?? "default").trim().toUpperCase()}_GROUP_POLICY`;
+  const envCandidates = [
+    [scopedKey, scopedKey ? envVars?.[scopedKey] : ""],
+    [scopedKey, scopedKey ? processEnv?.[scopedKey] : ""],
+    ["WECOM_GROUP_POLICY", envVars?.WECOM_GROUP_POLICY],
+    ["WECOM_GROUP_POLICY", processEnv?.WECOM_GROUP_POLICY],
+  ];
+  for (const [key, value] of envCandidates) {
+    if (!key) continue;
+    const policyMode = normalizeWecomGroupPolicyMode(value, "");
+    if (!policyMode) continue;
+    return {
+      policyMode,
+      source: `env.${key}`,
+    };
+  }
+
+  return {
+    policyMode: "",
+    source: "",
+  };
+}
+
 export function extractLeadingSlashCommand(text) {
   const normalized = String(text ?? "").trim();
   if (!normalized.startsWith("/")) return "";
@@ -903,42 +1208,65 @@ export function isWecomSenderAllowed({ senderId, allowFrom = [] } = {}) {
 
 export function resolveWecomGroupChatConfig({
   channelConfig = {},
+  accountConfig = {},
   envVars = {},
   processEnv = process.env,
+  accountId = "default",
+  chatId = "",
 } = {}) {
-  const groupConfig =
-    channelConfig?.groupChat && typeof channelConfig.groupChat === "object" ? channelConfig.groupChat : {};
-  const enabled = parseBooleanLike(
-    groupConfig.enabled,
-    parseBooleanLike(envVars?.WECOM_GROUP_CHAT_ENABLED, parseBooleanLike(processEnv?.WECOM_GROUP_CHAT_ENABLED, true)),
+  const normalizedChatId = String(chatId ?? "").trim();
+  const channelGroupConfig = asConfigObject(channelConfig?.groupChat);
+  const accountGroupConfig = asConfigObject(accountConfig?.groupChat);
+  const channelGroupOverrides = asConfigObject(channelConfig?.groups);
+  const accountGroupOverrides = asConfigObject(accountConfig?.groups);
+  const channelChatConfig = lookupWecomGroupOverrideConfig(channelGroupOverrides, normalizedChatId);
+  const accountChatConfig = lookupWecomGroupOverrideConfig(accountGroupOverrides, normalizedChatId);
+  const triggerScopeEntries = [
+    { config: accountChatConfig, source: "account.group" },
+    { config: accountGroupConfig, source: "account.groupChat" },
+    { config: channelChatConfig, source: "channel.group" },
+    { config: channelGroupConfig, source: "channel.groupChat" },
+  ];
+  const policyScopeEntries = [
+    { config: accountChatConfig, source: "account.group" },
+    { config: accountGroupConfig, source: "account.groupChat" },
+    { config: accountConfig, source: "account.root" },
+    { config: channelChatConfig, source: "channel.group" },
+    { config: channelGroupConfig, source: "channel.groupChat" },
+    { config: channelConfig, source: "channel.root" },
+  ];
+
+  const configuredEnabled = resolveBooleanLike(
+    [
+      accountChatConfig.enabled,
+      accountGroupConfig.enabled,
+      channelChatConfig.enabled,
+      channelGroupConfig.enabled,
+      envVars?.WECOM_GROUP_CHAT_ENABLED,
+      processEnv?.WECOM_GROUP_CHAT_ENABLED,
+    ],
+    true,
   );
-  const requireMention = parseBooleanLike(
-    groupConfig.requireMention,
-    parseBooleanLike(
-      envVars?.WECOM_GROUP_CHAT_REQUIRE_MENTION,
-      parseBooleanLike(processEnv?.WECOM_GROUP_CHAT_REQUIRE_MENTION, false),
-    ),
+  const triggerDetails = resolveGroupScopedTriggerDetails(
+    triggerScopeEntries,
+    envVars,
+    processEnv,
   );
-  const triggerModeRaw = pickFirstNonEmptyString(
-    groupConfig.triggerMode,
-    envVars?.WECOM_GROUP_CHAT_TRIGGER_MODE,
-    processEnv?.WECOM_GROUP_CHAT_TRIGGER_MODE,
-  )
-    .trim()
-    .toLowerCase();
-  const triggerMode = GROUP_CHAT_TRIGGER_MODE_SET.has(triggerModeRaw)
-    ? triggerModeRaw
-    : requireMention
-      ? "mention"
-      : "direct";
-  const mentionPatterns = parseStringList(
-    groupConfig.mentionPatterns,
+  const triggerMode = triggerDetails.triggerMode;
+  const mentionPatterns = pickFirstStringList(
+    accountChatConfig.mentionPatterns,
+    accountGroupConfig.mentionPatterns,
+    channelChatConfig.mentionPatterns,
+    channelGroupConfig.mentionPatterns,
     envVars?.WECOM_GROUP_CHAT_MENTION_PATTERNS,
     processEnv?.WECOM_GROUP_CHAT_MENTION_PATTERNS,
     "@",
   );
-  const triggerKeywords = parseStringList(
-    groupConfig.triggerKeywords,
+  const triggerKeywords = pickFirstStringList(
+    accountChatConfig.triggerKeywords,
+    accountGroupConfig.triggerKeywords,
+    channelChatConfig.triggerKeywords,
+    channelGroupConfig.triggerKeywords,
     envVars?.WECOM_GROUP_CHAT_TRIGGER_KEYWORDS,
     processEnv?.WECOM_GROUP_CHAT_TRIGGER_KEYWORDS,
   ).map((item) => String(item ?? "").trim());
@@ -951,12 +1279,100 @@ export function resolveWecomGroupChatConfig({
     dedupedPatterns.push(token);
   }
 
+  const allowFromDetails = pickFirstStringListWithSource([
+    { value: accountChatConfig.allowFrom, source: "account.group.allowFrom" },
+    { value: accountChatConfig.groupAllowFrom, source: "account.group.groupAllowFrom" },
+    { value: accountConfig?.groupAllowFrom, source: "account.root.groupAllowFrom" },
+    { value: accountGroupConfig.allowFrom, source: "account.groupChat.allowFrom" },
+    { value: accountGroupConfig.groupAllowFrom, source: "account.groupChat.groupAllowFrom" },
+    { value: channelChatConfig.allowFrom, source: "channel.group.allowFrom" },
+    { value: channelChatConfig.groupAllowFrom, source: "channel.group.groupAllowFrom" },
+    { value: channelConfig?.groupAllowFrom, source: "channel.root.groupAllowFrom" },
+    { value: channelGroupConfig.allowFrom, source: "channel.groupChat.allowFrom" },
+    { value: channelGroupConfig.groupAllowFrom, source: "channel.groupChat.groupAllowFrom" },
+    {
+      value: readGroupAllowFromEnv(envVars, processEnv, accountId),
+      source: accountId === "default" ? "env.WECOM_GROUP_ALLOW_FROM" : "env.account.WECOM_GROUP_ALLOW_FROM",
+    },
+  ]);
+  const allowFrom = uniqueAllowFromList(allowFromDetails.values);
+  const policyDetails = resolveGroupScopedPolicyDetails(
+    policyScopeEntries,
+    envVars,
+    processEnv,
+    accountId,
+  );
+  const configuredPolicyMode = policyDetails.policyMode;
+  const inferredPolicyMode =
+    configuredPolicyMode ||
+    (!configuredEnabled
+      ? "deny"
+      : allowFrom.length > 0 && !allowFrom.includes("*")
+        ? "allowlist"
+        : "open");
+  const policyMode =
+    !configuredEnabled || (inferredPolicyMode === "allowlist" && allowFrom.length === 0) ? "deny" : inferredPolicyMode;
+  const enabled = policyMode !== "deny";
+  const rejectMessageDetails = pickFirstNonEmptyStringWithSource(
+    [
+      { value: accountChatConfig.rejectMessage, source: "account.group.rejectMessage" },
+      { value: accountChatConfig.groupAllowFromRejectMessage, source: "account.group.groupAllowFromRejectMessage" },
+      { value: accountChatConfig.blockMessage, source: "account.group.blockMessage" },
+      { value: accountConfig?.groupAllowFromRejectMessage, source: "account.root.groupAllowFromRejectMessage" },
+      { value: accountGroupConfig.rejectMessage, source: "account.groupChat.rejectMessage" },
+      { value: accountGroupConfig.groupAllowFromRejectMessage, source: "account.groupChat.groupAllowFromRejectMessage" },
+      { value: accountGroupConfig.blockMessage, source: "account.groupChat.blockMessage" },
+      { value: channelChatConfig.rejectMessage, source: "channel.group.rejectMessage" },
+      { value: channelChatConfig.groupAllowFromRejectMessage, source: "channel.group.groupAllowFromRejectMessage" },
+      { value: channelChatConfig.blockMessage, source: "channel.group.blockMessage" },
+      { value: channelConfig?.groupAllowFromRejectMessage, source: "channel.root.groupAllowFromRejectMessage" },
+      { value: channelGroupConfig.rejectMessage, source: "channel.groupChat.rejectMessage" },
+      { value: channelGroupConfig.groupAllowFromRejectMessage, source: "channel.groupChat.groupAllowFromRejectMessage" },
+      { value: channelGroupConfig.blockMessage, source: "channel.groupChat.blockMessage" },
+      {
+        value: readGroupAllowFromRejectMessageEnv(envVars, processEnv, accountId),
+        source:
+          accountId === "default"
+            ? "env.WECOM_GROUP_ALLOW_FROM_REJECT_MESSAGE"
+            : "env.account.WECOM_GROUP_ALLOW_FROM_REJECT_MESSAGE",
+      },
+    ],
+    DEFAULT_ALLOW_FROM_REJECT_MESSAGE,
+    "default",
+  );
+  const rejectMessage = rejectMessageDetails.value;
+  const configuredGroupIds = collectConfiguredGroupIds(channelGroupOverrides, accountGroupOverrides);
+  const matchedGroupOverride =
+    Object.keys(channelChatConfig).length > 0 || Object.keys(accountChatConfig).length > 0;
+  const matchedGroupOverrideSource =
+    Object.keys(accountChatConfig).length > 0 ? "account.group" : Object.keys(channelChatConfig).length > 0 ? "channel.group" : "";
+  const effectivePolicySource =
+    policyMode === inferredPolicyMode
+      ? configuredPolicyMode
+        ? policyDetails.source
+        : "inferred"
+      : !configuredEnabled
+        ? "enabled=false"
+        : "allowlist-empty";
+
   return {
     enabled,
+    policyMode,
+    policySource: effectivePolicySource,
+    triggerSource: triggerDetails.source,
     requireMention: triggerMode === "mention",
     triggerMode,
     mentionPatterns: dedupedPatterns.length > 0 ? dedupedPatterns : ["@"],
     triggerKeywords: uniqueLowerCaseList(triggerKeywords),
+    allowFrom,
+    allowFromSource: allowFromDetails.source,
+    allowFromActive: policyMode === "allowlist",
+    rejectMessage,
+    rejectMessageSource: rejectMessageDetails.source,
+    chatId: normalizedChatId,
+    matchedGroupOverride,
+    matchedGroupOverrideSource,
+    configuredGroupCount: configuredGroupIds.length,
   };
 }
 
@@ -1301,6 +1717,173 @@ export function resolveWecomDeliveryFallbackConfig({
   };
 }
 
+export function resolveWecomPendingReplyConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const deliveryConfig =
+    channelConfig?.delivery && typeof channelConfig.delivery === "object" ? channelConfig.delivery : {};
+  const pendingReplyConfig =
+    deliveryConfig?.pendingReply && typeof deliveryConfig.pendingReply === "object" ? deliveryConfig.pendingReply : {};
+  const enabled = parseBooleanLike(
+    pendingReplyConfig.enabled,
+    parseBooleanLike(
+      envVars?.WECOM_PENDING_REPLY_ENABLED,
+      parseBooleanLike(processEnv?.WECOM_PENDING_REPLY_ENABLED, true),
+    ),
+  );
+  const maxRetries = asBoundedPositiveInteger(
+    pendingReplyConfig.maxRetries ??
+      envVars?.WECOM_PENDING_REPLY_MAX_RETRIES ??
+      processEnv?.WECOM_PENDING_REPLY_MAX_RETRIES,
+    3,
+    1,
+    10,
+  );
+  const retryBackoffMs = asBoundedPositiveInteger(
+    pendingReplyConfig.retryBackoffMs ??
+      envVars?.WECOM_PENDING_REPLY_RETRY_BACKOFF_MS ??
+      processEnv?.WECOM_PENDING_REPLY_RETRY_BACKOFF_MS,
+    15000,
+    1000,
+    10 * 60 * 1000,
+  );
+  const expireMs = asBoundedPositiveInteger(
+    pendingReplyConfig.expireMs ??
+      envVars?.WECOM_PENDING_REPLY_EXPIRE_MS ??
+      processEnv?.WECOM_PENDING_REPLY_EXPIRE_MS,
+    10 * 60 * 1000,
+    30000,
+    24 * 60 * 60 * 1000,
+  );
+  const persist = parseBooleanLike(
+    pendingReplyConfig.persist,
+    parseBooleanLike(
+      envVars?.WECOM_PENDING_REPLY_PERSIST,
+      parseBooleanLike(processEnv?.WECOM_PENDING_REPLY_PERSIST, true),
+    ),
+  );
+  const storeFile = pickFirstNonEmptyString(
+    pendingReplyConfig.storeFile,
+    envVars?.WECOM_PENDING_REPLY_STORE_FILE,
+    processEnv?.WECOM_PENDING_REPLY_STORE_FILE,
+  );
+  return {
+    enabled,
+    maxRetries,
+    retryBackoffMs,
+    expireMs,
+    persist,
+    storeFile: storeFile || undefined,
+  };
+}
+
+export function resolveWecomReasoningConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const deliveryConfig =
+    channelConfig?.delivery && typeof channelConfig.delivery === "object" ? channelConfig.delivery : {};
+  const reasoningConfig =
+    deliveryConfig?.reasoning && typeof deliveryConfig.reasoning === "object" ? deliveryConfig.reasoning : {};
+  const modeRaw = pickFirstNonEmptyString(
+    reasoningConfig.mode,
+    envVars?.WECOM_REASONING_MODE,
+    processEnv?.WECOM_REASONING_MODE,
+  )
+    .trim()
+    .toLowerCase();
+  const sendThinkingMessage = parseBooleanLike(
+    reasoningConfig.sendThinkingMessage,
+    parseBooleanLike(
+      envVars?.WECOM_SEND_THINKING_MESSAGE,
+      parseBooleanLike(processEnv?.WECOM_SEND_THINKING_MESSAGE, true),
+    ),
+  );
+  const includeInFinalAnswer = parseBooleanLike(
+    reasoningConfig.includeInFinalAnswer,
+    parseBooleanLike(
+      envVars?.WECOM_REASONING_INCLUDE_IN_FINAL_ANSWER,
+      parseBooleanLike(processEnv?.WECOM_REASONING_INCLUDE_IN_FINAL_ANSWER, false),
+    ),
+  );
+  let mode = DELIVERY_REASONING_MODE_SET.has(modeRaw)
+    ? modeRaw
+    : includeInFinalAnswer
+      ? "append"
+      : sendThinkingMessage
+        ? "separate"
+        : "hidden";
+  if (!DELIVERY_REASONING_MODE_SET.has(mode)) mode = "separate";
+  const title = pickFirstNonEmptyString(
+    reasoningConfig.title,
+    envVars?.WECOM_REASONING_TITLE,
+    processEnv?.WECOM_REASONING_TITLE,
+    "思考过程",
+  );
+  const maxChars = asBoundedPositiveInteger(
+    reasoningConfig.maxChars ??
+      envVars?.WECOM_REASONING_MAX_CHARS ??
+      processEnv?.WECOM_REASONING_MAX_CHARS,
+    1200,
+    64,
+    8000,
+  );
+  return {
+    mode,
+    sendThinkingMessage: mode === "separate",
+    includeInFinalAnswer: mode === "append",
+    title,
+    maxChars,
+  };
+}
+
+export function resolveWecomReplyFormatConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const deliveryConfig =
+    channelConfig?.delivery && typeof channelConfig.delivery === "object" ? channelConfig.delivery : {};
+  const replyFormatRaw = pickFirstNonEmptyString(
+    deliveryConfig?.replyFormat,
+    envVars?.WECOM_REPLY_FORMAT,
+    processEnv?.WECOM_REPLY_FORMAT,
+    "auto",
+  )
+    .trim()
+    .toLowerCase();
+  const mode = DELIVERY_REPLY_FORMAT_SET.has(replyFormatRaw) ? replyFormatRaw : "auto";
+  return {
+    mode,
+  };
+}
+
+export function resolveWecomQuotaTrackingConfig({
+  channelConfig = {},
+  envVars = {},
+  processEnv = process.env,
+} = {}) {
+  const deliveryConfig =
+    channelConfig?.delivery && typeof channelConfig.delivery === "object" ? channelConfig.delivery : {};
+  const quotaTrackingConfig =
+    deliveryConfig?.quotaTracking && typeof deliveryConfig.quotaTracking === "object"
+      ? deliveryConfig.quotaTracking
+      : {};
+  const enabled = parseBooleanLike(
+    quotaTrackingConfig.enabled,
+    parseBooleanLike(
+      envVars?.WECOM_QUOTA_TRACKING_ENABLED,
+      parseBooleanLike(processEnv?.WECOM_QUOTA_TRACKING_ENABLED, true),
+    ),
+  );
+  return {
+    enabled,
+  };
+}
+
 export function resolveWecomWebhookBotDeliveryConfig({
   channelConfig = {},
   envVars = {},
@@ -1547,11 +2130,15 @@ export function resolveWecomBotModeConfig({
   }
   const longConnectionConfig =
     botConfig.longConnection && typeof botConfig.longConnection === "object" ? botConfig.longConnection : {};
+  const compatLongConnectionBotId = pickFirstNonEmptyString(accountConfig?.botId, accountConfig?.botid);
+  const compatLongConnectionSecret = pickFirstNonEmptyString(accountConfig?.secret);
+  const compatLongConnectionEnabled =
+    Boolean(compatLongConnectionBotId) || Boolean(compatLongConnectionSecret);
   const longConnectionEnabled = parseBooleanLike(
     longConnectionConfig.enabled,
     parseBooleanLike(
       scopedEnvVars?.WECOM_BOT_LONG_CONNECTION_ENABLED,
-      parseBooleanLike(scopedProcessEnv?.WECOM_BOT_LONG_CONNECTION_ENABLED, false),
+      parseBooleanLike(scopedProcessEnv?.WECOM_BOT_LONG_CONNECTION_ENABLED, compatLongConnectionEnabled),
     ),
   );
   const enabled = parseBooleanLike(
@@ -1641,11 +2228,13 @@ export function resolveWecomBotModeConfig({
   const longConnectionBotId = pickFirstNonEmptyString(
     longConnectionConfig.botId,
     longConnectionConfig.botid,
+    compatLongConnectionBotId,
     scopedEnvVars?.WECOM_BOT_LONG_CONNECTION_BOT_ID,
     scopedProcessEnv?.WECOM_BOT_LONG_CONNECTION_BOT_ID,
   );
   const longConnectionSecret = pickFirstNonEmptyString(
     longConnectionConfig.secret,
+    compatLongConnectionSecret,
     scopedEnvVars?.WECOM_BOT_LONG_CONNECTION_SECRET,
     scopedProcessEnv?.WECOM_BOT_LONG_CONNECTION_SECRET,
   );

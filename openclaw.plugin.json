@@ -1,7 +1,7 @@
 {
   "id": "openclaw-wechat",
   "name": "OpenClaw-Wechat",
-  "version": "2.1.0",
+  "version": "2.3.0",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "channels": [
     "wecom"
@@ -13,7 +13,7 @@
     "type": "object",
     "additionalProperties": false,
     "patternProperties": {
-      "^(?!(name|enabled|corpId|corpSecret|agentId|callbackToken|token|callbackAesKey|encodingAesKey|webhookPath|agent|bot|delivery|webhookBot|stream|observability|outboundProxy|webhooks|allowFrom|allowFromRejectMessage|adminUsers|commandAllowlist|commandBlockMessage|commands|workspaceTemplate|groupChat|dynamicAgent|dynamicAgents|dm|debounce|streaming|voiceTranscription|defaultAccount|tools|accounts)$)[A-Za-z0-9_-]+$": {
+      "^(?!(name|enabled|botId|botid|secret|corpId|corpSecret|agentId|callbackToken|token|callbackAesKey|encodingAesKey|webhookPath|agent|bot|delivery|webhookBot|stream|observability|outboundProxy|network|apiBaseUrl|webhooks|allowFrom|allowFromRejectMessage|groupPolicy|groupAllowFrom|groupAllowFromRejectMessage|adminUsers|commandAllowlist|commandBlockMessage|commands|workspaceTemplate|groupChat|groups|dynamicAgent|dynamicAgents|dm|debounce|streaming|voiceTranscription|defaultAccount|tools|accounts)$)[A-Za-z0-9_-]+$": {
         "type": "object",
         "description": "兼容旧配置：inline 多账户（推荐迁移到 channels.wecom.accounts.<id>）"
       }
@@ -290,7 +290,7 @@
       },
       "delivery": {
         "type": "object",
-        "description": "Bot 模式回包兜底策略（按层降级）",
+        "description": "WeCom 可靠投递策略（回包兜底 + Pending Reply + 配额感知）",
         "additionalProperties": false,
         "properties": {
           "fallback": {
@@ -299,15 +299,16 @@
             "properties": {
               "enabled": {
                 "type": "boolean",
-                "default": false,
-                "description": "是否启用多层回包兜底（默认关闭，保持兼容）"
+                "default": true,
+                "description": "是否启用多层回包兜底"
               },
               "order": {
                 "type": "array",
-                "description": "回包层级顺序（active_stream/response_url/webhook_bot/agent_push）",
+                "description": "回包层级顺序（long_connection/active_stream/response_url/webhook_bot/agent_push）",
                 "items": {
                   "type": "string",
                   "enum": [
+                    "long_connection",
                     "active_stream",
                     "response_url",
                     "webhook_bot",
@@ -315,6 +316,7 @@
                   ]
                 },
                 "default": [
+                  "long_connection",
                   "active_stream",
                   "response_url",
                   "webhook_bot",
@@ -322,8 +324,122 @@
                 ]
               }
             }
+          },
+          "pendingReply": {
+            "type": "object",
+            "description": "最终回复投递失败后的待补发队列",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "是否启用 Pending Reply 自动补发"
+              },
+              "maxRetries": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10,
+                "default": 3,
+                "description": "单条待补发消息的最大重试次数"
+              },
+              "retryBackoffMs": {
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 600000,
+                "default": 15000,
+                "description": "待补发重试基准退避时间（毫秒）"
+              },
+              "expireMs": {
+                "type": "integer",
+                "minimum": 30000,
+                "maximum": 86400000,
+                "default": 600000,
+                "description": "待补发消息过期时间（毫秒）"
+              },
+              "persist": {
+                "type": "boolean",
+                "default": true,
+                "description": "是否在 gateway 重启后恢复 Pending Reply / delivery 状态"
+              },
+              "storeFile": {
+                "type": "string",
+                "description": "可选：可靠投递状态持久化文件路径（默认写入 OPENCLAW_STATE_DIR/wecom/reliable-delivery.json）"
+              }
+            }
+          },
+          "reasoning": {
+            "type": "object",
+            "description": "推理/思考内容展示策略",
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "separate",
+                  "append",
+                  "hidden"
+                ],
+                "default": "separate",
+                "description": "推理内容展示方式：separate=单独显示，append=合并进最终回复，hidden=隐藏"
+              },
+              "sendThinkingMessage": {
+                "type": "boolean",
+                "default": true,
+                "description": "兼容字段：等价于 mode=separate / hidden"
+              },
+              "includeInFinalAnswer": {
+                "type": "boolean",
+                "default": false,
+                "description": "兼容字段：为 true 时等价于 mode=append"
+              },
+              "title": {
+                "type": "string",
+                "default": "思考过程",
+                "description": "append 模式下的推理标题"
+              },
+              "maxChars": {
+                "type": "integer",
+                "minimum": 64,
+                "maximum": 8000,
+                "default": 1200,
+                "description": "保留的最大推理字符数"
+              }
+            }
+          },
+          "replyFormat": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "text",
+              "markdown"
+            ],
+            "default": "auto",
+            "description": "最终回复格式：auto=按链路自动选择，text=强制纯文本，markdown=优先使用 markdown 能力"
+          },
+          "quotaTracking": {
+            "type": "object",
+            "description": "主动发送额度与 24h 窗口感知",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "是否跟踪 24h 回复窗口与主动发送额度状态"
+              }
+            }
           }
         }
+      },
+      "botId": {
+        "type": "string",
+        "minLength": 1,
+        "description": "兼容字段：等价 channels.wecom.bot.longConnection.botId"
+      },
+      "secret": {
+        "type": "string",
+        "minLength": 1,
+        "description": "兼容字段：等价 channels.wecom.bot.longConnection.secret",
+        "x-sensitive": true
       },
       "webhookBot": {
         "type": "object",
@@ -406,6 +522,33 @@
         "type": "string",
         "description": "可选：WeCom 出站 API 代理（如 http://127.0.0.1:7890）"
       },
+      "apiBaseUrl": {
+        "type": "string",
+        "description": "可选：自定义 WeCom API Base URL（默认 https://qyapi.weixin.qq.com）"
+      },
+      "network": {
+        "type": "object",
+        "description": "兼容字段：网络配置别名",
+        "additionalProperties": false,
+        "properties": {
+          "egressProxyUrl": {
+            "type": "string",
+            "description": "兼容字段：等价 outboundProxy"
+          },
+          "proxyUrl": {
+            "type": "string",
+            "description": "兼容字段：等价 outboundProxy"
+          },
+          "proxy": {
+            "type": "string",
+            "description": "兼容字段：等价 outboundProxy"
+          },
+          "apiBaseUrl": {
+            "type": "string",
+            "description": "兼容字段：等价 apiBaseUrl"
+          }
+        }
+      },
       "defaultAccount": {
         "type": "string",
         "minLength": 1,
@@ -447,6 +590,28 @@
       "allowFromRejectMessage": {
         "type": "string",
         "description": "发送者未授权时的拒绝提示文案"
+      },
+      "groupPolicy": {
+        "type": "string",
+        "enum": [
+          "open",
+          "allowlist",
+          "deny",
+          "disabled"
+        ],
+        "description": "可选：群聊准入策略。open=开放，allowlist=仅白名单成员可触发，deny/disabled=关闭群聊处理。"
+      },
+      "groupAllowFrom": {
+        "type": "array",
+        "description": "可选：群聊发送者允许列表（空=不限制，支持 '*'）",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "groupAllowFromRejectMessage": {
+        "type": "string",
+        "description": "群聊发送者未授权时的拒绝提示文案"
       },
       "adminUsers": {
         "type": "array",
@@ -510,6 +675,26 @@
             "default": true,
             "description": "是否启用群聊消息处理"
           },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "open",
+              "allowlist",
+              "deny",
+              "disabled"
+            ],
+            "description": "群聊准入策略：open=开放，allowlist=仅白名单成员可触发，deny/disabled=关闭群聊处理"
+          },
+          "groupPolicy": {
+            "type": "string",
+            "enum": [
+              "open",
+              "allowlist",
+              "deny",
+              "disabled"
+            ],
+            "description": "兼容字段：等价 policy"
+          },
           "triggerMode": {
             "type": "string",
             "enum": [
@@ -539,6 +724,97 @@
             "items": {
               "type": "string",
               "minLength": 1
+            }
+          }
+        }
+      },
+      "groups": {
+        "type": "object",
+        "description": "按群 chatId 定义覆盖规则：触发方式、授权成员、拒绝文案等",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "该群是否启用消息处理"
+            },
+            "policy": {
+              "type": "string",
+              "enum": [
+                "open",
+                "allowlist",
+                "deny",
+                "disabled"
+              ],
+              "description": "该群准入策略：open=开放，allowlist=仅白名单成员可触发，deny/disabled=关闭群聊处理"
+            },
+            "groupPolicy": {
+              "type": "string",
+              "enum": [
+                "open",
+                "allowlist",
+                "deny",
+                "disabled"
+              ],
+              "description": "兼容字段：等价 policy"
+            },
+            "triggerMode": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "mention",
+                "keyword"
+              ],
+              "description": "该群触发模式：direct=直接触发，mention=@触发，keyword=关键词触发"
+            },
+            "requireMention": {
+              "type": "boolean",
+              "description": "兼容字段：等价于 triggerMode=mention"
+            },
+            "mentionPatterns": {
+              "type": "array",
+              "description": "该群提及匹配关键字",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "triggerKeywords": {
+              "type": "array",
+              "description": "该群关键词触发列表",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "allowFrom": {
+              "type": "array",
+              "description": "该群允许触发机器人的成员列表（覆盖 groupAllowFrom）",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "groupAllowFrom": {
+              "type": "array",
+              "description": "兼容字段：等价 allowFrom",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "rejectMessage": {
+              "type": "string",
+              "description": "该群成员未授权时的提示文案"
+            },
+            "groupAllowFromRejectMessage": {
+              "type": "string",
+              "description": "兼容字段：等价 rejectMessage"
+            },
+            "blockMessage": {
+              "type": "string",
+              "description": "兼容字段：等价 rejectMessage"
             }
           }
         }
@@ -1144,9 +1420,47 @@
                 }
               }
             },
+            "botId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "兼容字段：等价 accounts.<id>.bot.longConnection.botId"
+            },
+            "secret": {
+              "type": "string",
+              "minLength": 1,
+              "description": "兼容字段：等价 accounts.<id>.bot.longConnection.secret",
+              "x-sensitive": true
+            },
             "outboundProxy": {
               "type": "string",
               "description": "可选：该账户专用 WeCom 出站 API 代理（覆盖 channels.wecom.outboundProxy）"
+            },
+            "apiBaseUrl": {
+              "type": "string",
+              "description": "可选：该账户专用 WeCom API Base URL（覆盖 channels.wecom.apiBaseUrl）"
+            },
+            "network": {
+              "type": "object",
+              "description": "兼容字段：该账户网络配置别名",
+              "additionalProperties": false,
+              "properties": {
+                "egressProxyUrl": {
+                  "type": "string",
+                  "description": "兼容字段：等价 outboundProxy"
+                },
+                "proxyUrl": {
+                  "type": "string",
+                  "description": "兼容字段：等价 outboundProxy"
+                },
+                "proxy": {
+                  "type": "string",
+                  "description": "兼容字段：等价 outboundProxy"
+                },
+                "apiBaseUrl": {
+                  "type": "string",
+                  "description": "兼容字段：等价 apiBaseUrl"
+                }
+              }
             },
             "tools": {
               "type": "object",
@@ -1185,6 +1499,28 @@
               "type": "string",
               "description": "可选：该账户发送者未授权时的拒绝文案（覆盖 channels.wecom.allowFromRejectMessage）"
             },
+            "groupPolicy": {
+              "type": "string",
+              "enum": [
+                "open",
+                "allowlist",
+                "deny",
+                "disabled"
+              ],
+              "description": "可选：该账户专用群聊准入策略（覆盖 channels.wecom.groupPolicy）"
+            },
+            "groupAllowFrom": {
+              "type": "array",
+              "description": "可选：该账户专用群聊发送者允许列表（覆盖 channels.wecom.groupAllowFrom）",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "groupAllowFromRejectMessage": {
+              "type": "string",
+              "description": "可选：该账户群聊发送者未授权时的拒绝文案（覆盖 channels.wecom.groupAllowFromRejectMessage）"
+            },
             "dm": {
               "type": "object",
               "description": "可选：该账户私聊策略（覆盖 channels.wecom.dm）",
@@ -1212,6 +1548,160 @@
                 "rejectMessage": {
                   "type": "string",
                   "description": "私聊被拒绝时的提示文案"
+                }
+              }
+            },
+            "groupChat": {
+              "type": "object",
+              "description": "可选：该账户群聊触发策略（覆盖 channels.wecom.groupChat）",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "是否启用该账户群聊消息处理"
+                },
+                "policy": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "allowlist",
+                    "deny",
+                    "disabled"
+                  ],
+                  "description": "该账户群聊准入策略"
+                },
+                "groupPolicy": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "allowlist",
+                    "deny",
+                    "disabled"
+                  ],
+                  "description": "兼容字段：等价 policy"
+                },
+                "triggerMode": {
+                  "type": "string",
+                  "enum": [
+                    "direct",
+                    "mention",
+                    "keyword"
+                  ],
+                  "default": "direct",
+                  "description": "该账户群聊触发模式"
+                },
+                "requireMention": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "兼容字段：等价于 triggerMode=mention"
+                },
+                "mentionPatterns": {
+                  "type": "array",
+                  "description": "该账户群聊提及匹配关键字",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "triggerKeywords": {
+                  "type": "array",
+                  "description": "该账户群聊关键词触发列表",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "groups": {
+              "type": "object",
+              "description": "可选：该账户按群 chatId 定义覆盖规则",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "该群是否启用消息处理"
+                  },
+                  "policy": {
+                    "type": "string",
+                    "enum": [
+                      "open",
+                      "allowlist",
+                      "deny",
+                      "disabled"
+                    ],
+                    "description": "该群准入策略：open=开放，allowlist=仅白名单成员可触发，deny/disabled=关闭群聊处理"
+                  },
+                  "groupPolicy": {
+                    "type": "string",
+                    "enum": [
+                      "open",
+                      "allowlist",
+                      "deny",
+                      "disabled"
+                    ],
+                    "description": "兼容字段：等价 policy"
+                  },
+                  "triggerMode": {
+                    "type": "string",
+                    "enum": [
+                      "direct",
+                      "mention",
+                      "keyword"
+                    ],
+                    "description": "该群触发模式"
+                  },
+                  "requireMention": {
+                    "type": "boolean",
+                    "description": "兼容字段：等价于 triggerMode=mention"
+                  },
+                  "mentionPatterns": {
+                    "type": "array",
+                    "description": "该群提及匹配关键字",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "triggerKeywords": {
+                    "type": "array",
+                    "description": "该群关键词触发列表",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "allowFrom": {
+                    "type": "array",
+                    "description": "该群允许触发机器人的成员列表（覆盖 groupAllowFrom）",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "groupAllowFrom": {
+                    "type": "array",
+                    "description": "兼容字段：等价 allowFrom",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "rejectMessage": {
+                    "type": "string",
+                    "description": "该群成员未授权时的提示文案"
+                  },
+                  "groupAllowFromRejectMessage": {
+                    "type": "string",
+                    "description": "兼容字段：等价 rejectMessage"
+                  },
+                  "blockMessage": {
+                    "type": "string",
+                    "description": "兼容字段：等价 rejectMessage"
+                  }
                 }
               }
             },
@@ -1307,10 +1797,202 @@
     "id": "wecom",
     "label": "企业微信 WeCom",
     "selectionLabel": "企业微信 WeCom（自建应用/Bot）",
+    "detailLabel": "企业微信自建应用 / Bot",
     "docsPath": "/channels/wecom",
     "docsLabel": "wecom",
     "blurb": "企业微信消息通道（自建应用回调 + Bot 回调 + 发送 API）。",
     "order": 80,
+    "systemImage": "building.2.crop.circle",
+    "quickstartAllowFrom": true,
+    "quickstart": {
+      "recommendedMode": "bot_long_connection",
+      "defaultGroupProfile": "inherit",
+      "supportsSetupPlan": true,
+      "supportsWizard": true,
+      "supportsRunChecks": true,
+      "supportsActions": true,
+      "supportsMigration": true,
+      "supportsRepairPlan": true,
+      "supportsConfirmRepair": true,
+      "supportsDoctor": true,
+      "supportsExternalInstaller": true,
+      "installerSpec": "@dingxiang-me/openclaw-wecom-cli",
+      "installerCommand": "npx -y @dingxiang-me/openclaw-wecom-cli install",
+      "applyRepairCommand": "npm run wecom:quickstart -- --run-checks --apply-repair",
+      "confirmRepairCommand": "npm run wecom:quickstart -- --run-checks --confirm-repair",
+      "doctorCommand": "npm run wecom:doctor -- --json",
+      "migrationCommand": "npm run wecom:migrate -- --json",
+      "runChecksCommand": "npm run wecom:quickstart -- --run-checks",
+      "forceChecksCommand": "npm run wecom:quickstart -- --run-checks --force-checks",
+      "setupCommand": "npm run wecom:quickstart -- --json",
+      "wizardCommand": "npm run wecom:quickstart -- --wizard",
+      "writeCommand": "npm run wecom:quickstart -- --write",
+      "modes": [
+        {
+          "id": "bot_long_connection",
+          "label": "Bot 长连接",
+          "recommended": true,
+          "requiresPublicWebhook": false,
+          "supportsPairing": true,
+          "docsAnchor": "#bot-long-connection",
+          "summary": "最快跑通对话；无需公网 callback，优先推荐。",
+          "firstRunGoal": "先把 Bot 收消息、回消息和长连接健康跑通。",
+          "requiredAdminSteps": [
+            "在企业微信 Bot 后台启用长连接并拿到 BotID / Secret。"
+          ],
+          "successChecks": [
+            {
+              "id": "bot_long_connection-check-1",
+              "command": "npm run wecom:bot:selfcheck -- --account default",
+              "summary": "检查 1: npm run wecom:bot:selfcheck -- --account default"
+            },
+            {
+              "id": "bot_long_connection-check-2",
+              "command": "npm run wecom:bot:longconn:probe -- --json",
+              "summary": "检查 2: npm run wecom:bot:longconn:probe -- --json"
+            }
+          ],
+          "requiredConfigPaths": [
+            "channels.wecom.bot.enabled",
+            "channels.wecom.bot.longConnection.enabled",
+            "channels.wecom.bot.longConnection.botId",
+            "channels.wecom.bot.longConnection.secret"
+          ],
+          "checks": [
+            "npm run wecom:bot:selfcheck -- --account default",
+            "npm run wecom:bot:longconn:probe -- --json"
+          ]
+        },
+        {
+          "id": "agent_callback",
+          "label": "自建应用回调",
+          "recommended": false,
+          "requiresPublicWebhook": true,
+          "supportsPairing": true,
+          "docsAnchor": "#callback-url",
+          "summary": "适合需要主动发送、自建应用菜单和 Agent API 的场景。",
+          "firstRunGoal": "先把自建应用 callback、主动发送和公网回调验证跑通。",
+          "requiredAdminSteps": [
+            "在企业微信自建应用后台配置回调 URL、Token 和 EncodingAESKey。",
+            "为 callback 路径准备稳定公网入口并完成 URL 验证。"
+          ],
+          "successChecks": [
+            {
+              "id": "agent_callback-check-1",
+              "command": "npm run wecom:agent:selfcheck -- --account default",
+              "summary": "检查 1: npm run wecom:agent:selfcheck -- --account default"
+            },
+            {
+              "id": "agent_callback-check-2",
+              "command": "npm run wecom:selfcheck -- --account default",
+              "summary": "检查 2: npm run wecom:selfcheck -- --account default"
+            }
+          ],
+          "requiredConfigPaths": [
+            "channels.wecom.corpId",
+            "channels.wecom.corpSecret",
+            "channels.wecom.agentId",
+            "channels.wecom.callbackToken",
+            "channels.wecom.callbackAesKey",
+            "channels.wecom.webhookPath"
+          ],
+          "checks": [
+            "npm run wecom:agent:selfcheck -- --account default",
+            "npm run wecom:selfcheck -- --account default"
+          ]
+        },
+        {
+          "id": "hybrid",
+          "label": "Bot + Agent 双通道",
+          "recommended": false,
+          "requiresPublicWebhook": true,
+          "supportsPairing": true,
+          "docsAnchor": "#callback-url",
+          "summary": "同时保留 Bot 长连接的接入顺滑和 Agent 的主动发送能力。",
+          "firstRunGoal": "先同时打通 Bot 对话入口和 Agent 主动发送链路。",
+          "requiredAdminSteps": [
+            "在企业微信自建应用后台配置回调 URL、Token 和 EncodingAESKey。",
+            "在企业微信 Bot 后台启用长连接并拿到 BotID / Secret。"
+          ],
+          "successChecks": [
+            {
+              "id": "hybrid-check-1",
+              "command": "npm run wecom:agent:selfcheck -- --account default",
+              "summary": "检查 1: npm run wecom:agent:selfcheck -- --account default"
+            },
+            {
+              "id": "hybrid-check-2",
+              "command": "npm run wecom:bot:selfcheck -- --account default",
+              "summary": "检查 2: npm run wecom:bot:selfcheck -- --account default"
+            }
+          ],
+          "requiredConfigPaths": [
+            "channels.wecom.corpId",
+            "channels.wecom.corpSecret",
+            "channels.wecom.agentId",
+            "channels.wecom.callbackToken",
+            "channels.wecom.callbackAesKey",
+            "channels.wecom.bot.enabled",
+            "channels.wecom.bot.longConnection.enabled",
+            "channels.wecom.bot.longConnection.botId",
+            "channels.wecom.bot.longConnection.secret"
+          ],
+          "checks": [
+            "npm run wecom:agent:selfcheck -- --account default",
+            "npm run wecom:bot:selfcheck -- --account default"
+          ]
+        }
+      ],
+      "groupProfiles": [
+        {
+          "id": "inherit",
+          "label": "保持默认",
+          "summary": "不额外写入群聊策略，保留当前默认行为。",
+          "recommendedForModes": [
+            "bot_long_connection",
+            "agent_callback",
+            "hybrid"
+          ]
+        },
+        {
+          "id": "mention_only",
+          "label": "仅 @ 触发",
+          "summary": "群里保持开放，但只在 @ 机器人时触发。",
+          "recommendedForModes": [
+            "bot_long_connection",
+            "hybrid"
+          ]
+        },
+        {
+          "id": "open_direct",
+          "label": "群聊直出",
+          "summary": "群里所有成员都可直接触发，无需 @。",
+          "recommendedForModes": [
+            "agent_callback"
+          ]
+        },
+        {
+          "id": "allowlist_template",
+          "label": "群白名单模板",
+          "summary": "预置 allowlist、按群覆盖和拒绝文案，适合值班群/运营群。",
+          "recommendedForModes": [
+            "agent_callback",
+            "hybrid",
+            "bot_long_connection"
+          ]
+        },
+        {
+          "id": "deny",
+          "label": "关闭群聊",
+          "summary": "显式关闭群聊处理，只保留私聊/点对点路径。",
+          "recommendedForModes": [
+            "bot_long_connection",
+            "agent_callback",
+            "hybrid"
+          ]
+        }
+      ]
+    },
     "aliases": [
       "wework",
       "qiwei",

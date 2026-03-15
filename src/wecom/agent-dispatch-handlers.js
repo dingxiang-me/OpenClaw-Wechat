@@ -1,3 +1,7 @@
+import { applyWecomReasoningPolicy } from "./reasoning-visibility.js";
+import { extractWecomReplyDirectives } from "./reply-output-policy.js";
+import { parseThinkingContent } from "./thinking-parser.js";
+
 function assertFunction(name, value) {
   if (typeof value !== "function") {
     throw new Error(`createWecomAgentDispatchHandlers: ${name} is required`);
@@ -16,21 +20,26 @@ export function createWecomAgentDispatchHandlers({
   api,
   state,
   streamingEnabled = false,
+  sessionId = "",
+  runtimeAccountId = "default",
   fromUser,
   routedAgentId = "",
   corpId = "",
   corpSecret = "",
   agentId = "",
   proxyUrl = "",
+  apiBaseUrl = "",
   flushStreamingBuffer,
   sendFailureFallback,
   sendTextToUser,
+  deliverAgentReply = null,
   markdownToWecomText,
   isAgentFailureText,
   computeStreamingTailText,
   autoSendWorkspaceFilesFromReplyText,
   buildWorkspaceAutoSendHints,
   sendWecomOutboundMediaBatch,
+  reasoningPolicy = {},
 } = {}) {
   if (!state || typeof state !== "object") {
     throw new Error("createWecomAgentDispatchHandlers: state is required");
@@ -67,9 +76,13 @@ export function createWecomAgentDispatchHandlers({
       }
       if (info.kind === "block") {
         if (payload.text) {
-          state.blockTextFallback = appendWecomAgentBlockFallback(state.blockTextFallback, payload.text);
+          const blockParsed = parseThinkingContent(payload.text);
+          const blockVisibleText = extractWecomReplyDirectives(markdownToWecomText(blockParsed.visibleContent).trim()).text;
+          if (blockVisibleText) {
+            state.blockTextFallback = appendWecomAgentBlockFallback(state.blockTextFallback, blockVisibleText);
+          }
           if (streamingEnabled) {
-            state.streamChunkBuffer += payload.text;
+            state.streamChunkBuffer += blockVisibleText || "";
             await flushStreamingBuffer({ force: false, reason: "block" });
           }
         }
@@ -85,12 +98,31 @@ export function createWecomAgentDispatchHandlers({
           return;
         }
 
+        const parsedFinal = parseThinkingContent(payload.text);
+        const parsedRawFinal = parseThinkingContent(String(payload.rawText ?? payload.text ?? ""));
+        const reasoningPayload = applyWecomReasoningPolicy({
+          text: markdownToWecomText(parsedFinal.visibleContent).trim(),
+          thinkingContent: markdownToWecomText(parsedFinal.thinkingContent).trim(),
+          policy: reasoningPolicy,
+          transport: "agent",
+          phase: "final",
+        });
+        const rawReasoningPayload = applyWecomReasoningPolicy({
+          text: String(parsedRawFinal.visibleContent ?? "").trim(),
+          thinkingContent: String(payload.rawThinkingContent ?? parsedRawFinal.thinkingContent ?? "").trim(),
+          policy: reasoningPolicy,
+          transport: "agent",
+          phase: "final",
+        });
+        const effectiveFinalText = extractWecomReplyDirectives(String(reasoningPayload.text ?? "").trim()).text;
+        const richFinalText = extractWecomReplyDirectives(String(rawReasoningPayload.text ?? "").trim()).text;
+
         logger?.info?.(`wecom: delivering ${info.kind} reply, length=${payload.text.length}`);
         if (streamingEnabled) {
           await flushStreamingBuffer({ force: true, reason: "final" });
           await state.streamChunkSendChain;
           if (state.streamChunkSentCount > 0) {
-            const finalText = markdownToWecomText(payload.text).trim();
+            const finalText = effectiveFinalText;
             const streamedText = markdownToWecomText(state.blockTextFallback).trim();
             const tailText = computeStreamingTailText({ finalText, streamedText });
             if (tailText) {
@@ -105,9 +137,9 @@ export function createWecomAgentDispatchHandlers({
         }
 
         if (!deliveredFinalText) {
-          const formattedReply = markdownToWecomText(payload.text);
+          const formattedReply = effectiveFinalText;
           const workspaceAutoMedia = await autoSendWorkspaceFilesFromReplyText({
-            text: formattedReply,
+            text: String(payload.rawText ?? payload.text ?? formattedReply),
             routeAgentId: routedAgentId,
             corpId,
             corpSecret,
@@ -115,12 +147,32 @@ export function createWecomAgentDispatchHandlers({
             toUser: fromUser,
             logger,
             proxyUrl,
+            apiBaseUrl,
           });
           const workspaceHints = buildWorkspaceAutoSendHints(workspaceAutoMedia);
           const finalReplyText = [formattedReply, ...workspaceHints].filter(Boolean).join("\n\n");
-          await sendTextToUser(finalReplyText);
-          state.hasDeliveredReply = true;
-          deliveredFinalText = true;
+          if (typeof deliverAgentReply === "function") {
+            const result = await deliverAgentReply({
+              api,
+              fromUser,
+              accountId: runtimeAccountId,
+              sessionId,
+              text: finalReplyText,
+              rawText: [richFinalText, ...workspaceHints].filter(Boolean).join("\n\n"),
+              rawThinkingContent: String(rawReasoningPayload.thinkingContent ?? "").trim(),
+              routeAgentId: routedAgentId,
+              reason: "final-reply",
+            });
+            state.hasDeliveredReply = true;
+            deliveredFinalText = result?.ok === true;
+            if (!result?.ok) {
+              logger?.warn?.(`wecom: final agent reply deferred to pending delivery session=${sessionId || "n/a"}`);
+            }
+          } else {
+            await sendTextToUser(finalReplyText);
+            state.hasDeliveredReply = true;
+            deliveredFinalText = true;
+          }
           logger?.info?.(`wecom: sent AI reply to ${fromUser}: ${finalReplyText.slice(0, 50)}...`);
         }
       }
@@ -136,6 +188,7 @@ export function createWecomAgentDispatchHandlers({
           mediaType: payload.mediaType,
           logger,
           proxyUrl,
+          apiBaseUrl,
         });
         if (mediaResult.sentCount > 0) {
           state.hasDeliveredReply = true;

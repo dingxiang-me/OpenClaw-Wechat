@@ -42,6 +42,7 @@ export function createWecomTextSender({
     text,
     logger,
     proxyUrl,
+    apiBaseUrl,
   }) {
     const sendJson = await sendWecomTypedMessage({
       corpId,
@@ -57,6 +58,7 @@ export function createWecomTextSender({
       },
       logger,
       proxyUrl,
+      apiBaseUrl,
       errorPrefix: "",
     });
     const isAppChat = Boolean(chatId);
@@ -76,6 +78,7 @@ export function createWecomTextSender({
     text,
     logger,
     proxyUrl,
+    apiBaseUrl,
   }) {
     const targetKey = buildTargetKey({ corpId, agentId, toUser, toParty, toTag, chatId });
     return enqueueTargetSend(targetKey, async () => {
@@ -96,6 +99,7 @@ export function createWecomTextSender({
           text: chunks[i],
           logger,
           proxyUrl,
+          apiBaseUrl,
         });
         if (i < chunks.length - 1) {
           // eslint-disable-next-line no-await-in-loop

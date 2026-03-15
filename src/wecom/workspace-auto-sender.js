@@ -28,6 +28,7 @@ export function createWorkspaceAutoSender({
     chatId,
     logger,
     proxyUrl,
+    apiBaseUrl,
     maxDetect = 6,
   } = {}) {
     const normalizedText = String(text ?? "");
@@ -90,6 +91,7 @@ export function createWorkspaceAutoSender({
       mediaUrls: resolved.map((item) => item.hostPath),
       logger,
       proxyUrl,
+      apiBaseUrl,
     });
 
     const failedByPath = new Map();

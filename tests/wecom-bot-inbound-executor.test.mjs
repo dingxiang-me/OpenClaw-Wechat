@@ -65,6 +65,7 @@ function createInput(overrides = {}) {
     normalizeWecomBotOutboundMediaUrls: (payload) =>
       Array.isArray(payload?.mediaUrls) ? payload.mediaUrls : payload?.mediaUrl ? [payload.mediaUrl] : [],
     resolveWecomGroupChatPolicy: () => ({ enabled: true, triggerMode: "direct", mentionPatterns: [] }),
+    resolveWecomReasoningPolicy: () => ({ mode: "separate", title: "思考过程", maxChars: 1200 }),
     resolveWecomDynamicAgentPolicy: () => ({ mode: "mapping" }),
     hasBotStream: () => true,
     finishBotStream: (streamId, text) => {

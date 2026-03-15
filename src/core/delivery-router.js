@@ -1,3 +1,5 @@
+import { inferWecomDeliveryStatus, normalizeWecomDeliveryStatus } from "../wecom/reliable-delivery.js";
+
 const DEFAULT_FALLBACK_ORDER = Object.freeze([
   "long_connection",
   "active_stream",
@@ -124,6 +126,7 @@ export function createWecomDeliveryRouter({
             layer,
             ok: true,
             status: "ok",
+            deliveryStatus: "delivered",
             meta: result?.meta ?? {},
             durationMs: Math.max(0, layerEndedAt - layerStartedAt),
             startedAt: layerStartedAt,
@@ -141,6 +144,7 @@ export function createWecomDeliveryRouter({
             layer,
             deliveryPath: layer,
             finalStatus: attempts.length > 1 ? "degraded" : "ok",
+            deliveryStatus: "delivered",
             attempts,
             totalDurationMs: Math.max(0, layerEndedAt - deliverStartedAt),
           };
@@ -150,6 +154,14 @@ export function createWecomDeliveryRouter({
           ok: false,
           status: "miss",
           reason: String(result?.reason ?? "rejected"),
+          deliveryStatus:
+            normalizeWecomDeliveryStatus(result?.deliveryStatus, "") ||
+            inferWecomDeliveryStatus({
+              reason: String(result?.reason ?? "rejected"),
+              layer,
+              meta: result?.meta ?? {},
+              errcode: result?.meta?.errcode ?? result?.errcode ?? null,
+            }),
           meta: result?.meta ?? {},
           durationMs: Math.max(0, layerEndedAt - layerStartedAt),
           startedAt: layerStartedAt,
@@ -168,6 +180,10 @@ export function createWecomDeliveryRouter({
           ok: false,
           status: "error",
           reason: safeErrorMessage(err),
+          deliveryStatus: inferWecomDeliveryStatus({
+            reason: safeErrorMessage(err),
+            layer,
+          }),
           durationMs: Math.max(0, layerEndedAt - layerStartedAt),
           startedAt: layerStartedAt,
           endedAt: layerEndedAt,
@@ -191,6 +207,11 @@ export function createWecomDeliveryRouter({
       layer: null,
       deliveryPath: null,
       finalStatus: "failed",
+      deliveryStatus:
+        attempts
+          .slice()
+          .reverse()
+          .find((attempt) => attempt?.deliveryStatus)?.deliveryStatus || "rejected_unknown",
       attempts,
       error: "all-layers-failed",
       totalDurationMs: Math.max(0, Date.now() - deliverStartedAt),

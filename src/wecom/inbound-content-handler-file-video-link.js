@@ -13,6 +13,7 @@ export function createInboundFileVideoLinkHandlers({
     corpSecret,
     mediaId,
     proxyUrl,
+    apiBaseUrl,
     tempPathsToCleanup,
   }) {
     api.logger.info?.(`wecom: received video message mediaId=${mediaId}`);
@@ -22,6 +23,7 @@ export function createInboundFileVideoLinkHandlers({
         corpSecret,
         mediaId,
         proxyUrl,
+        apiBaseUrl,
         logger: api.logger,
       });
       const tempDir = await ensureTempDir();
@@ -50,6 +52,7 @@ export function createInboundFileVideoLinkHandlers({
     fileName,
     fileSize,
     proxyUrl,
+    apiBaseUrl,
     tempPathsToCleanup,
   }) {
     api.logger.info?.(`wecom: received file message mediaId=${mediaId}, fileName=${fileName}, size=${fileSize}`);
@@ -59,6 +62,7 @@ export function createInboundFileVideoLinkHandlers({
         corpSecret,
         mediaId,
         proxyUrl,
+        apiBaseUrl,
         logger: api.logger,
       });
       const ext = fileName ? fileName.split(".").pop() : "bin";

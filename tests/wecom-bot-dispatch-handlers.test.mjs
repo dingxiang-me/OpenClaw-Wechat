@@ -83,7 +83,12 @@ test("createWecomBotDispatchHandlers maps think tags into thinkingContent", asyn
 
   await handlers.deliver({ text: "<think>最后思路</think>输出结果" }, { kind: "final" });
   assert.deepEqual(delivered[0], {
-    payload: { text: "输出结果", thinkingContent: "最后思路" },
+    payload: {
+      text: "输出结果",
+      thinkingContent: "最后思路",
+      rawText: "输出结果",
+      rawThinkingContent: "最后思路",
+    },
     reason: "final",
   });
 });
@@ -119,4 +124,29 @@ test("createWecomBotDispatchHandlers handles final failure and onError", async (
   assert.equal(state.streamFinished, true);
   assert.equal(delivered[1].reason, "dispatch-final-error");
   assert.match(String(delivered[1].payload), /当前模型请求失败/);
+});
+
+test("createWecomBotDispatchHandlers strips MEDIA directives from visible final text", async () => {
+  const delivered = [];
+  const state = { blockText: "", streamFinished: false };
+  const handlers = createWecomBotDispatchHandlers({
+    api: { logger: { error() {}, debug() {} } },
+    streamId: "stream-3",
+    state,
+    hasBotStream: () => true,
+    normalizeWecomBotOutboundMediaUrls: () => [],
+    queueBotStreamMedia: () => {},
+    updateBotStream: () => {},
+    markdownToWecomText: (text) => text,
+    isAgentFailureText: () => false,
+    safeDeliverReply: async (payload, reason) => {
+      delivered.push({ payload, reason });
+      return true;
+    },
+  });
+
+  await handlers.deliver({ text: "结果如下\nMEDIA: /workspace/out/chart.png" }, { kind: "final" });
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0].payload.text, "结果如下");
+  assert.equal(delivered[0].payload.rawText, "结果如下\nMEDIA: /workspace/out/chart.png");
 });

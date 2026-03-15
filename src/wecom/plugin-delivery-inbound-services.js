@@ -3,6 +3,7 @@ import { WECOM_TEMP_DIR_NAME, BOOTSTRAP_TEMPLATE_FILES } from "./plugin-constant
 import { SEEDED_AGENT_WORKSPACES } from "./plugin-shared-state.js";
 import { WecomSessionTaskQueue } from "../core/stream-manager.js";
 import { createWecomBotReplyDeliverer } from "./outbound-delivery.js";
+import { createWecomAgentReplyDeliverer } from "./outbound-agent-delivery.js";
 import { createWecomInboundContentBuilder } from "./inbound-content.js";
 import { createDynamicWorkspaceSeeder } from "./workspace-tools.js";
 import { createWecomSessionQueueManager } from "./session-queue.js";
@@ -13,6 +14,8 @@ export function createWecomPluginDeliveryInboundServices({
   setBotStreamExpireMs,
   attachWecomProxyDispatcher,
   resolveWecomDeliveryFallbackPolicy,
+  resolveWecomReasoningPolicy,
+  resolveWecomReplyFormatPolicy,
   resolveWecomWebhookBotDeliveryPolicy,
   resolveWecomObservabilityPolicy,
   resolveWecomBotProxyConfig,
@@ -28,10 +31,14 @@ export function createWecomPluginDeliveryInboundServices({
   drainBotStreamMedia,
   getWecomConfig,
   sendWecomText,
+  sendWecomMarkdown,
   fetchMediaFromUrl,
   extractWorkspacePathsFromText,
   resolveWorkspacePathToHost,
   recordDeliveryMetric,
+  recordReliableDeliveryOutcome,
+  enqueuePendingReply,
+  sendWecomOutboundMediaBatch,
   downloadWecomMedia,
   resolveWecomVoiceTranscriptionConfig,
   transcribeInboundVoice,
@@ -51,6 +58,8 @@ export function createWecomPluginDeliveryInboundServices({
   const { deliverBotReplyText } = createWecomBotReplyDeliverer({
     attachWecomProxyDispatcher,
     resolveWecomDeliveryFallbackPolicy,
+    resolveWecomReasoningPolicy,
+    resolveWecomReplyFormatPolicy,
     resolveWecomWebhookBotDeliveryPolicy,
     resolveWecomObservabilityPolicy,
     resolveWecomBotProxyConfig,
@@ -72,6 +81,21 @@ export function createWecomPluginDeliveryInboundServices({
     extractWorkspacePathsFromText,
     resolveWorkspacePathToHost,
     recordDeliveryMetric,
+    recordReliableDeliveryOutcome,
+    enqueuePendingReply,
+  });
+  const deliverAgentReply = createWecomAgentReplyDeliverer({
+    getWecomConfig,
+    sendWecomText,
+    sendWecomMarkdown,
+    sendWecomOutboundMediaBatch,
+    resolveWecomReasoningPolicy,
+    resolveWecomReplyFormatPolicy,
+    resolveWorkspacePathToHost,
+    createDeliveryTraceId,
+    recordDeliveryMetric,
+    recordReliableDeliveryOutcome,
+    enqueuePendingReply,
   });
 
   const { buildInboundContent } = createWecomInboundContentBuilder({
@@ -90,6 +114,7 @@ export function createWecomPluginDeliveryInboundServices({
     syncWecomSessionQueuePolicy,
     executeInboundTaskWithSessionQueue,
     deliverBotReplyText,
+    deliverAgentReply,
     buildInboundContent,
   };
 }

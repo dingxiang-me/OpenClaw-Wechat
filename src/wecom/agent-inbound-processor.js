@@ -31,12 +31,14 @@ export function createWecomAgentInboundProcessor(deps = {}) {
     resolveWecomAgentRoute,
     seedDynamicAgentWorkspace,
     resolveWecomReplyStreamingPolicy,
+    resolveWecomReasoningPolicy,
     asNumber,
     requireEnv,
     getByteLength,
     markdownToWecomText,
     autoSendWorkspaceFilesFromReplyText,
     sendWecomOutboundMediaBatch,
+    deliverAgentReply,
     sleep,
     resolveSessionTranscriptFilePath,
     readTranscriptAppendedChunk,
@@ -50,6 +52,8 @@ export function createWecomAgentInboundProcessor(deps = {}) {
     ACTIVE_LATE_REPLY_WATCHERS,
     resetWecomConversationSession,
     clearSessionStoreEntry,
+    markWecomReliableInboundActivity = () => null,
+    flushWecomSessionPendingReplies = async () => {},
   } = deps;
 
   let lateReplyWatcherRunner = null;
@@ -94,7 +98,7 @@ export function createWecomAgentInboundProcessor(deps = {}) {
 
     const cfg = api.config;
     const runtime = api.runtime;
-    const { corpId, corpSecret, agentId, outboundProxy: proxyUrl } = config;
+    const { corpId, corpSecret, agentId, outboundProxy: proxyUrl, apiBaseUrl } = config;
     const sendTextToUser = createWecomAgentTextSender({
       sendWecomText,
       corpId,
@@ -103,17 +107,29 @@ export function createWecomAgentInboundProcessor(deps = {}) {
       toUser: fromUser,
       logger: api.logger,
       proxyUrl,
+      apiBaseUrl,
     });
 
     try {
       const baseSessionId = buildWecomSessionId(fromUser, config.accountId || accountId || "default");
+      markWecomReliableInboundActivity({
+        mode: "agent",
+        accountId: config.accountId || accountId || "default",
+        sessionId: baseSessionId,
+        fromUser,
+      });
       let sessionId = baseSessionId;
       let routedAgentId = "";
       const normalizedFromUser = String(fromUser ?? "").trim().toLowerCase();
       const fromAddress = `wecom:${normalizedFromUser}`;
       const originalContent = content || "";
       let commandBody = originalContent;
-      const groupChatPolicy = resolveWecomGroupChatPolicy(api);
+      const groupChatPolicy = resolveWecomGroupChatPolicy(
+        api,
+        config.accountId || accountId || "default",
+        config,
+        isGroupChat ? chatId : "",
+      );
       const dynamicAgentPolicy = resolveWecomDynamicAgentPolicy(api);
       api.logger.info?.(`wecom: processing ${msgType} message for session ${sessionId}${isGroupChat ? " (group)" : ""}`);
 
@@ -146,6 +162,7 @@ export function createWecomAgentInboundProcessor(deps = {}) {
           agentId,
           accountId: config.accountId || "default",
           proxyUrl,
+          apiBaseUrl,
           chatId,
           isGroupChat,
         },
@@ -206,6 +223,7 @@ export function createWecomAgentInboundProcessor(deps = {}) {
         corpSecret,
         agentId,
         proxyUrl,
+        apiBaseUrl,
         fromUser,
         msgType,
         baseText: msgType === "text" ? commandBody : originalContent,
@@ -255,6 +273,17 @@ export function createWecomAgentInboundProcessor(deps = {}) {
       const storePath = runtimeContext.storePath;
       const ctxPayload = runtimeContext.ctxPayload;
       const runtimeAccountId = runtimeContext.accountId;
+      markWecomReliableInboundActivity({
+        mode: "agent",
+        accountId: runtimeAccountId,
+        sessionId,
+        fromUser,
+      });
+      await flushWecomSessionPendingReplies({
+        mode: "agent",
+        accountId: runtimeAccountId,
+        sessionId,
+      });
 
       api.logger.info?.(`wecom: dispatching message via agent runtime for session ${sessionId}`);
       await executeWecomAgentDispatchFlow({
@@ -272,14 +301,17 @@ export function createWecomAgentInboundProcessor(deps = {}) {
         corpSecret,
         agentId,
         proxyUrl,
+        apiBaseUrl,
         tempPathsToCleanup,
         resolveWecomReplyStreamingPolicy,
+        resolveWecomReasoningPolicy,
         asNumber,
         requireEnv,
         getByteLength,
         markdownToWecomText,
         autoSendWorkspaceFilesFromReplyText,
         sendWecomOutboundMediaBatch,
+        deliverAgentReply,
         withTimeout,
         isDispatchTimeoutError,
         isAgentFailureText,

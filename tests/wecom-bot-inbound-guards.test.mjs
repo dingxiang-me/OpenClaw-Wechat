@@ -65,6 +65,63 @@ test("applyWecomBotCommandAndSenderGuard blocks unauthorized sender", async () =
   assert.equal(result.finishText, "当前账号未授权，请联系管理员。");
 });
 
+test("applyWecomBotCommandAndSenderGuard blocks unauthorized group sender by groupAllowFrom", async () => {
+  const result = await applyWecomBotCommandAndSenderGuard({
+    api: {},
+    accountId: "default",
+    fromUser: "u1",
+    chatId: "roomA",
+    isGroupChat: true,
+    msgType: "text",
+    commandBody: "hello",
+    normalizedFromUser: "u1",
+    groupChatPolicy: {
+      enabled: true,
+      policyMode: "allowlist",
+      triggerMode: "mention",
+      allowFrom: ["u2"],
+      rejectMessage: "group blocked",
+    },
+    resolveWecomCommandPolicy: () => ({ enabled: true, adminUsers: [], allowlist: [], rejectMessage: "cmd blocked" }),
+    resolveWecomAllowFromPolicy: () => ({ allowFrom: ["u1"], rejectMessage: "当前账号未授权，请联系管理员。" }),
+    resolveWecomDmPolicy: () => ({ mode: "open", allowFrom: [] }),
+    isWecomSenderAllowed: ({ senderId, allowFrom }) => allowFrom.includes(senderId),
+    extractLeadingSlashCommand: () => "",
+    buildWecomBotHelpText: () => "help",
+    buildWecomBotStatusText: () => "status",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.finishText, "group blocked");
+});
+
+test("applyWecomBotCommandAndSenderGuard allows group sender when policyMode is open", async () => {
+  const result = await applyWecomBotCommandAndSenderGuard({
+    api: {},
+    accountId: "default",
+    fromUser: "u1",
+    chatId: "roomA",
+    isGroupChat: true,
+    msgType: "text",
+    commandBody: "hello",
+    normalizedFromUser: "u1",
+    groupChatPolicy: {
+      enabled: true,
+      policyMode: "open",
+      triggerMode: "mention",
+      allowFrom: ["u2"],
+      rejectMessage: "group blocked",
+    },
+    resolveWecomCommandPolicy: () => ({ enabled: true, adminUsers: [], allowlist: [], rejectMessage: "cmd blocked" }),
+    resolveWecomAllowFromPolicy: () => ({ allowFrom: ["u1"], rejectMessage: "当前账号未授权，请联系管理员。" }),
+    resolveWecomDmPolicy: () => ({ mode: "open", allowFrom: [] }),
+    isWecomSenderAllowed: ({ senderId, allowFrom }) => allowFrom.includes(senderId),
+    extractLeadingSlashCommand: () => "",
+    buildWecomBotHelpText: () => "help",
+    buildWecomBotStatusText: () => "status",
+  });
+  assert.equal(result.ok, true);
+});
+
 test("applyWecomBotCommandAndSenderGuard translates /clear to /reset", async () => {
   const result = await applyWecomBotCommandAndSenderGuard({
     api: {},

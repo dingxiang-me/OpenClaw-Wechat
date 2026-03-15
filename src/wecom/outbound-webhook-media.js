@@ -32,6 +32,7 @@ export function createWecomWebhookBotMediaSender({
     webhookBotPolicy,
     proxyUrl,
     mediaUrls,
+    mediaItems,
     mediaType,
   }) {
     const sendUrl = resolveWebhookBotSendUrl({
@@ -51,12 +52,35 @@ export function createWecomWebhookBotMediaSender({
     const dispatcher = resolveWebhookDispatcher(attachWecomProxyDispatcher, sendUrl, proxyUrl, logger);
     let sentCount = 0;
     const failedUrls = [];
-    const candidateMediaUrls = Array.isArray(mediaUrls) ? mediaUrls : [];
+    const rawItems = [
+      ...(Array.isArray(mediaUrls) ? mediaUrls : []).map((url) => ({
+        url,
+        mediaType,
+      })),
+      ...(Array.isArray(mediaItems) ? mediaItems : []),
+    ];
+    const dedupe = new Set();
+    const candidateMediaItems = [];
+    for (const item of rawItems) {
+      const normalizedUrl = String(item?.url ?? "").trim();
+      const normalizedType = String(item?.mediaType ?? "").trim().toLowerCase() || undefined;
+      if (!normalizedUrl) continue;
+      const dedupeKey = `${normalizedType || ""}:${normalizedUrl}`;
+      if (dedupe.has(dedupeKey)) continue;
+      dedupe.add(dedupeKey);
+      candidateMediaItems.push({
+        url: normalizedUrl,
+        mediaType: normalizedType,
+      });
+    }
 
-    for (const mediaUrl of candidateMediaUrls) {
-      const target = resolveWecomOutboundMediaTarget({ mediaUrl, mediaType });
+    for (const mediaItem of candidateMediaItems) {
+      const target = resolveWecomOutboundMediaTarget({
+        mediaUrl: mediaItem.url,
+        mediaType: mediaItem.mediaType ?? mediaType,
+      });
       try {
-        const { buffer } = await fetchMediaFromUrl(mediaUrl, {
+        const { buffer } = await fetchMediaFromUrl(mediaItem.url, {
           proxyUrl,
           logger,
           forceProxy: Boolean(proxyUrl),
@@ -91,9 +115,9 @@ export function createWecomWebhookBotMediaSender({
         }
         sentCount += 1;
       } catch (err) {
-        failedUrls.push(mediaUrl);
+        failedUrls.push(mediaItem.url);
         logger?.warn?.(
-          `wecom(bot): webhook media send failed target=${mediaUrl} type=${target.type} reason=${String(err?.message || err)}`,
+          `wecom(bot): webhook media send failed target=${mediaItem.url} type=${target.type} reason=${String(err?.message || err)}`,
         );
       }
     }

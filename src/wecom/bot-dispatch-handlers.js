@@ -1,4 +1,6 @@
 import { parseThinkingContent } from "./thinking-parser.js";
+import { applyWecomReasoningPolicy } from "./reasoning-visibility.js";
+import { extractWecomReplyDirectives } from "./reply-output-policy.js";
 
 function assertFunction(name, value) {
   if (typeof value !== "function") {
@@ -30,6 +32,7 @@ export function createWecomBotDispatchHandlers({
   markdownToWecomText,
   isAgentFailureText,
   safeDeliverReply,
+  reasoningPolicy = {},
 } = {}) {
   if (!state || typeof state !== "object") {
     throw new Error("createWecomBotDispatchHandlers: state is required");
@@ -46,14 +49,46 @@ export function createWecomBotDispatchHandlers({
 
   const logger = api?.logger;
 
-  const buildThinkingState = (rawText) => {
+  const buildThinkingState = (rawText, rawThinkingOverride = "") => {
     const parsed = parseThinkingContent(rawText);
     const visibleRaw = String(parsed.visibleContent ?? "").trim();
     const thinkingRaw = String(parsed.thinkingContent ?? "").trim();
+    const visibleText = visibleRaw ? markdownToWecomText(visibleRaw).trim() : "";
+    const thinkingContent = (thinkingRaw ? markdownToWecomText(thinkingRaw).trim() : "") || String(rawThinkingOverride ?? "").trim();
+    const rawThinkingContent = String(rawThinkingOverride ?? "").trim() || thinkingRaw;
+    const cleanedStreamPayload = applyWecomReasoningPolicy({
+      text: visibleText,
+      thinkingContent,
+      policy: reasoningPolicy,
+      transport: "bot",
+      phase: "stream",
+    });
+    const cleanedFinalPayload = applyWecomReasoningPolicy({
+      text: visibleText,
+      thinkingContent,
+      policy: reasoningPolicy,
+      transport: "bot",
+      phase: "final",
+    });
+    const rawFinalPayload = applyWecomReasoningPolicy({
+      text: visibleRaw,
+      thinkingContent: rawThinkingContent,
+      policy: reasoningPolicy,
+      transport: "bot",
+      phase: "final",
+    });
     return {
       rawText: String(rawText ?? ""),
-      visibleText: visibleRaw ? markdownToWecomText(visibleRaw).trim() : "",
-      thinkingContent: thinkingRaw ? markdownToWecomText(thinkingRaw).trim() : "",
+      streamPayload: {
+        ...cleanedStreamPayload,
+        text: extractWecomReplyDirectives(cleanedStreamPayload.text).text,
+      },
+      finalPayload: {
+        ...cleanedFinalPayload,
+        text: extractWecomReplyDirectives(cleanedFinalPayload.text).text,
+        rawText: String(rawFinalPayload.text ?? "").trim(),
+        rawThinkingContent: String(rawFinalPayload.thinkingContent ?? "").trim(),
+      },
     };
   };
 
@@ -74,10 +109,10 @@ export function createWecomBotDispatchHandlers({
         if (!payload?.text) return;
         state.blockText = normalizeWecomBotBlockText(state.blockText, payload.text);
         const blockState = buildThinkingState(state.blockText);
-        updateBotStream(streamId, blockState.visibleText, {
+        updateBotStream(streamId, blockState.streamPayload.text, {
           append: false,
           finished: false,
-          thinkingContent: blockState.thinkingContent,
+          thinkingContent: blockState.streamPayload.thinkingContent,
         });
         if (typeof pushWecomBotLongConnectionStreamUpdate === "function") {
           try {
@@ -85,9 +120,9 @@ export function createWecomBotDispatchHandlers({
               accountId,
               sessionId,
               streamId,
-              content: blockState.visibleText,
+              content: blockState.streamPayload.text,
               finish: false,
-              thinkingContent: blockState.thinkingContent,
+              thinkingContent: blockState.streamPayload.thinkingContent,
             });
           } catch (err) {
             logger?.warn?.(
@@ -104,11 +139,13 @@ export function createWecomBotDispatchHandlers({
           return;
         }
         const finalState = buildThinkingState(payload.text);
-        if (finalState.visibleText || finalState.thinkingContent) {
+        if (finalState.finalPayload.text || finalState.finalPayload.thinkingContent) {
           state.streamFinished = await safeDeliverReply(
             {
-              text: finalState.visibleText,
-              thinkingContent: finalState.thinkingContent,
+              text: finalState.finalPayload.text,
+              thinkingContent: finalState.finalPayload.thinkingContent,
+              rawText: finalState.finalPayload.rawText,
+              rawThinkingContent: finalState.finalPayload.rawThinkingContent,
             },
             "final",
           );

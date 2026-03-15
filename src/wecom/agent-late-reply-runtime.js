@@ -13,6 +13,8 @@ function isTimeoutLikeReason(reason) {
 
 export function createWecomAgentLateReplyRuntime({
   dispatchState,
+  api,
+  fromUser,
   sessionId,
   msgId = "",
   transcriptSessionId = "",
@@ -21,6 +23,7 @@ export function createWecomAgentLateReplyRuntime({
   lateReplyWatchMs,
   lateReplyPollMs,
   sendTextToUser,
+  deliverAgentReply = null,
   ensureLateReplyWatcherRunner,
   activeWatchers,
   clearSessionStoreEntry = null,
@@ -72,7 +75,19 @@ export function createWecomAgentLateReplyRuntime({
     dispatchState.hasDeliveredReply = true;
     const reasonText = String(reason ?? "unknown").slice(0, 160);
     try {
-      await sendTextToUser(`抱歉，当前模型请求超时或网络不稳定，请稍后重试。\n故障信息: ${reasonText}`);
+      const fallbackText = `抱歉，当前模型请求超时或网络不稳定，请稍后重试。\n故障信息: ${reasonText}`;
+      if (typeof deliverAgentReply === "function") {
+        await deliverAgentReply({
+          api,
+          fromUser,
+          accountId,
+          sessionId,
+          text: fallbackText,
+          reason: "late-timeout-fallback",
+        });
+      } else {
+        await sendTextToUser(fallbackText);
+      }
     } finally {
       await autoResetTimedOutSession(reasonText);
     }
@@ -100,7 +115,20 @@ export function createWecomAgentLateReplyRuntime({
       markDelivered: () => {
         dispatchState.hasDeliveredReply = true;
       },
-      sendText: async (text) => sendTextToUser(text),
+      sendText: async (text) => {
+        if (typeof deliverAgentReply === "function") {
+          await deliverAgentReply({
+            api,
+            fromUser,
+            accountId,
+            sessionId,
+            text,
+            reason: "late-reply",
+          });
+          return;
+        }
+        await sendTextToUser(text);
+      },
       onFailureFallback: async (err) => sendFailureFallback(err),
     }).finally(() => {
       lateReplyWatcherPromise = null;

@@ -1,15 +1,19 @@
 {
   "name": "@dingxiang-me/openclaw-wechat",
-  "version": "2.1.0",
+  "version": "2.3.0",
   "type": "module",
   "description": "WeCom (企业微信) channel plugin for OpenClaw (自建应用回调 + 发送 API).",
   "license": "MIT",
-  "exports": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./installer": "./src/wecom/installer-api.js"
+  },
   "publishConfig": {
     "access": "public"
   },
   "files": [
     "src/",
+    "scripts/",
     "openclaw.plugin.json",
     "README.md",
     "CHANGELOG.md",
@@ -31,6 +35,195 @@
       "order": 80,
       "systemImage": "building.2.crop.circle",
       "quickstartAllowFrom": true,
+      "quickstart": {
+        "recommendedMode": "bot_long_connection",
+        "defaultGroupProfile": "inherit",
+        "supportsSetupPlan": true,
+        "supportsWizard": true,
+        "supportsRunChecks": true,
+        "supportsActions": true,
+        "supportsMigration": true,
+        "supportsRepairPlan": true,
+        "supportsConfirmRepair": true,
+        "supportsDoctor": true,
+        "supportsExternalInstaller": true,
+        "installerSpec": "@dingxiang-me/openclaw-wecom-cli",
+        "installerCommand": "npx -y @dingxiang-me/openclaw-wecom-cli install",
+        "applyRepairCommand": "npm run wecom:quickstart -- --run-checks --apply-repair",
+        "confirmRepairCommand": "npm run wecom:quickstart -- --run-checks --confirm-repair",
+        "doctorCommand": "npm run wecom:doctor -- --json",
+        "migrationCommand": "npm run wecom:migrate -- --json",
+        "runChecksCommand": "npm run wecom:quickstart -- --run-checks",
+        "forceChecksCommand": "npm run wecom:quickstart -- --run-checks --force-checks",
+        "setupCommand": "npm run wecom:quickstart -- --json",
+        "wizardCommand": "npm run wecom:quickstart -- --wizard",
+        "writeCommand": "npm run wecom:quickstart -- --write",
+        "modes": [
+          {
+            "id": "bot_long_connection",
+            "label": "Bot 长连接",
+            "recommended": true,
+            "requiresPublicWebhook": false,
+            "supportsPairing": true,
+            "docsAnchor": "#bot-long-connection",
+            "summary": "最快跑通对话；无需公网 callback，优先推荐。",
+            "firstRunGoal": "先把 Bot 收消息、回消息和长连接健康跑通。",
+            "requiredAdminSteps": [
+              "在企业微信 Bot 后台启用长连接并拿到 BotID / Secret。"
+            ],
+            "successChecks": [
+              {
+                "id": "bot_long_connection-check-1",
+                "command": "npm run wecom:bot:selfcheck -- --account default",
+                "summary": "检查 1: npm run wecom:bot:selfcheck -- --account default"
+              },
+              {
+                "id": "bot_long_connection-check-2",
+                "command": "npm run wecom:bot:longconn:probe -- --json",
+                "summary": "检查 2: npm run wecom:bot:longconn:probe -- --json"
+              }
+            ],
+            "requiredConfigPaths": [
+              "channels.wecom.bot.enabled",
+              "channels.wecom.bot.longConnection.enabled",
+              "channels.wecom.bot.longConnection.botId",
+              "channels.wecom.bot.longConnection.secret"
+            ],
+            "checks": [
+              "npm run wecom:bot:selfcheck -- --account default",
+              "npm run wecom:bot:longconn:probe -- --json"
+            ]
+          },
+          {
+            "id": "agent_callback",
+            "label": "自建应用回调",
+            "recommended": false,
+            "requiresPublicWebhook": true,
+            "supportsPairing": true,
+            "docsAnchor": "#callback-url",
+            "summary": "适合需要主动发送、自建应用菜单和 Agent API 的场景。",
+            "firstRunGoal": "先把自建应用 callback、主动发送和公网回调验证跑通。",
+            "requiredAdminSteps": [
+              "在企业微信自建应用后台配置回调 URL、Token 和 EncodingAESKey。",
+              "为 callback 路径准备稳定公网入口并完成 URL 验证。"
+            ],
+            "successChecks": [
+              {
+                "id": "agent_callback-check-1",
+                "command": "npm run wecom:agent:selfcheck -- --account default",
+                "summary": "检查 1: npm run wecom:agent:selfcheck -- --account default"
+              },
+              {
+                "id": "agent_callback-check-2",
+                "command": "npm run wecom:selfcheck -- --account default",
+                "summary": "检查 2: npm run wecom:selfcheck -- --account default"
+              }
+            ],
+            "requiredConfigPaths": [
+              "channels.wecom.corpId",
+              "channels.wecom.corpSecret",
+              "channels.wecom.agentId",
+              "channels.wecom.callbackToken",
+              "channels.wecom.callbackAesKey",
+              "channels.wecom.webhookPath"
+            ],
+            "checks": [
+              "npm run wecom:agent:selfcheck -- --account default",
+              "npm run wecom:selfcheck -- --account default"
+            ]
+          },
+          {
+            "id": "hybrid",
+            "label": "Bot + Agent 双通道",
+            "recommended": false,
+            "requiresPublicWebhook": true,
+            "supportsPairing": true,
+            "docsAnchor": "#callback-url",
+            "summary": "同时保留 Bot 长连接的接入顺滑和 Agent 的主动发送能力。",
+            "firstRunGoal": "先同时打通 Bot 对话入口和 Agent 主动发送链路。",
+            "requiredAdminSteps": [
+              "在企业微信自建应用后台配置回调 URL、Token 和 EncodingAESKey。",
+              "在企业微信 Bot 后台启用长连接并拿到 BotID / Secret。"
+            ],
+            "successChecks": [
+              {
+                "id": "hybrid-check-1",
+                "command": "npm run wecom:agent:selfcheck -- --account default",
+                "summary": "检查 1: npm run wecom:agent:selfcheck -- --account default"
+              },
+              {
+                "id": "hybrid-check-2",
+                "command": "npm run wecom:bot:selfcheck -- --account default",
+                "summary": "检查 2: npm run wecom:bot:selfcheck -- --account default"
+              }
+            ],
+            "requiredConfigPaths": [
+              "channels.wecom.corpId",
+              "channels.wecom.corpSecret",
+              "channels.wecom.agentId",
+              "channels.wecom.callbackToken",
+              "channels.wecom.callbackAesKey",
+              "channels.wecom.bot.enabled",
+              "channels.wecom.bot.longConnection.enabled",
+              "channels.wecom.bot.longConnection.botId",
+              "channels.wecom.bot.longConnection.secret"
+            ],
+            "checks": [
+              "npm run wecom:agent:selfcheck -- --account default",
+              "npm run wecom:bot:selfcheck -- --account default"
+            ]
+          }
+        ],
+        "groupProfiles": [
+          {
+            "id": "inherit",
+            "label": "保持默认",
+            "summary": "不额外写入群聊策略，保留当前默认行为。",
+            "recommendedForModes": [
+              "bot_long_connection",
+              "agent_callback",
+              "hybrid"
+            ]
+          },
+          {
+            "id": "mention_only",
+            "label": "仅 @ 触发",
+            "summary": "群里保持开放，但只在 @ 机器人时触发。",
+            "recommendedForModes": [
+              "bot_long_connection",
+              "hybrid"
+            ]
+          },
+          {
+            "id": "open_direct",
+            "label": "群聊直出",
+            "summary": "群里所有成员都可直接触发，无需 @。",
+            "recommendedForModes": [
+              "agent_callback"
+            ]
+          },
+          {
+            "id": "allowlist_template",
+            "label": "群白名单模板",
+            "summary": "预置 allowlist、按群覆盖和拒绝文案，适合值班群/运营群。",
+            "recommendedForModes": [
+              "agent_callback",
+              "hybrid",
+              "bot_long_connection"
+            ]
+          },
+          {
+            "id": "deny",
+            "label": "关闭群聊",
+            "summary": "显式关闭群聊处理，只保留私聊/点对点路径。",
+            "recommendedForModes": [
+              "bot_long_connection",
+              "agent_callback",
+              "hybrid"
+            ]
+          }
+        ]
+      },
       "aliases": [
         "wework",
         "qiwei",
@@ -39,18 +232,25 @@
     },
     "install": {
       "defaultChoice": "npm",
-      "npmSpec": "@dingxiang-me/openclaw-wechat"
+      "npmSpec": "@dingxiang-me/openclaw-wechat",
+      "installerSpec": "@dingxiang-me/openclaw-wecom-cli",
+      "installerCommand": "npx -y @dingxiang-me/openclaw-wecom-cli install"
     }
   },
   "scripts": {
     "lint": "npm run test:syntax",
-    "test:syntax": "find src scripts tests -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node -c",
+    "test:syntax": "find src scripts tests packages -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node -c",
     "test": "npm run test:syntax && node --test tests/*.test.mjs",
     "test:e2e": "node --test tests/e2e/*.test.mjs",
+    "test:e2e:local": "node --test tests/e2e/local-onboarding.e2e.test.mjs",
     "test:e2e:remote": "node --test tests/e2e/*.test.mjs",
     "test:e2e:matrix": "node --test tests/e2e/remote-wecom.matrix.test.mjs",
+    "test:release": "node ./scripts/wecom-release-check.mjs --json",
     "test:e2e:prepare-browser": "bash ./tests/e2e/prepare-browser-sandbox.sh",
     "test:e2e:collect-pdf": "bash ./tests/e2e/collect-browser-pdf.sh",
+    "wecom:quickstart": "node ./scripts/wecom-quickstart.mjs",
+    "wecom:migrate": "node ./scripts/wecom-migrate.mjs",
+    "wecom:doctor": "node ./scripts/wecom-doctor.mjs",
     "wecom:selfcheck": "node ./scripts/wecom-selfcheck.mjs",
     "wecom:agent:selfcheck": "node ./scripts/wecom-agent-selfcheck.mjs",
     "wecom:bot:selfcheck": "node ./scripts/wecom-bot-selfcheck.mjs",

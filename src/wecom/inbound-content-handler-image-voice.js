@@ -25,6 +25,7 @@ export function createInboundImageVoiceHandlers({
     mediaId,
     picUrl,
     proxyUrl,
+    apiBaseUrl,
     tempPathsToCleanup,
   }) {
     api.logger.info?.(`wecom: downloading image mediaId=${mediaId}`);
@@ -37,6 +38,7 @@ export function createInboundImageVoiceHandlers({
         corpSecret,
         mediaId,
         proxyUrl,
+        apiBaseUrl,
         logger: api.logger,
       });
       imageBuffer = buffer;
@@ -91,6 +93,7 @@ export function createInboundImageVoiceHandlers({
     mediaId,
     recognition,
     proxyUrl,
+    apiBaseUrl,
   }) {
     api.logger.info?.(`wecom: received voice message mediaId=${mediaId}`);
     const recognizedText = String(recognition ?? "").trim();
@@ -113,6 +116,7 @@ export function createInboundImageVoiceHandlers({
         text: "语音识别未启用，请先开启企业微信语音识别，或直接发送文字消息。",
         logger: api.logger,
         proxyUrl,
+        apiBaseUrl,
       });
       return { aborted: true, messageText: "" };
     }
@@ -123,6 +127,7 @@ export function createInboundImageVoiceHandlers({
         corpSecret,
         mediaId,
         proxyUrl,
+        apiBaseUrl,
         logger: api.logger,
       });
       api.logger.info?.(
@@ -152,6 +157,7 @@ export function createInboundImageVoiceHandlers({
           "如持续失败，请确认本地 whisper 命令可用、模型路径已配置，并已安装 ffmpeg。",
         logger: api.logger,
         proxyUrl,
+        apiBaseUrl,
       });
       return { aborted: true, messageText: "" };
     }

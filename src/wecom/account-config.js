@@ -6,10 +6,14 @@ import {
   readAccountConfigFromEnv,
 } from "./account-config-core.js";
 import { normalizePluginHttpPath } from "./http-path.js";
+import { resolveWecomApiBaseUrl } from "./network-config.js";
 
-const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
+export const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "name",
   "enabled",
+  "botId",
+  "botid",
+  "secret",
   "corpId",
   "corpSecret",
   "agentId",
@@ -21,9 +25,14 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "outboundProxy",
   "proxyUrl",
   "proxy",
+  "network",
+  "apiBaseUrl",
   "webhooks",
   "allowFrom",
   "allowFromRejectMessage",
+  "groupPolicy",
+  "groupAllowFrom",
+  "groupAllowFromRejectMessage",
   "rejectUnauthorizedMessage",
   "adminUsers",
   "commandAllowlist",
@@ -31,6 +40,7 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "commands",
   "workspaceTemplate",
   "groupChat",
+  "groups",
   "dynamicAgent",
   "dynamicAgents",
   "dm",
@@ -48,7 +58,7 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "agent",
 ]);
 
-function listLegacyInlineAccountEntries(channelConfig) {
+export function listLegacyInlineAccountEntries(channelConfig) {
   if (!channelConfig || typeof channelConfig !== "object") return [];
   const entries = [];
   for (const [rawKey, value] of Object.entries(channelConfig)) {
@@ -131,6 +141,13 @@ export function createWecomAccountRegistry({
       };
       config.webhooks = Object.keys(mergedWebhookTargets).length > 0 ? mergedWebhookTargets : undefined;
       config.outboundProxy = resolveWecomProxyConfig({
+        channelConfig,
+        accountConfig: config,
+        envVars,
+        processEnv,
+        accountId,
+      });
+      config.apiBaseUrl = resolveWecomApiBaseUrl({
         channelConfig,
         accountConfig: config,
         envVars,

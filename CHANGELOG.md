@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-03-15
+
+### Added
+- 文档与发布说明已收口为插件侧接入路径：默认推荐 `installer / quickstart / doctor`，`openclaw channels add --channel wecom --use-env` 仅保留为高级 env-backed 初始化路径
+- 新增官方 / sunnoy 风格配置兼容：支持顶层与账户级 `botId`、`secret`、`network.egressProxyUrl`、`network.apiBaseUrl`
+- `wecom:migrate` 现在会识别 flat `botId/secret` 与 `network.*`，并生成归一化到 `bot.longConnection.*`、`outboundProxy`、`apiBaseUrl` 的 patch
+- `wecom:migrate` / `wecom:doctor` 新增 `migrationSource`，可区分 `official-wecom / sunnoy-wecom / legacy-openclaw-wechat / mixed-source`
+- `wecom:doctor` 新增 `--fix / --confirm-fix`，可先应用本地可落盘的 migration/plugin patch，再用修正后的配置重跑 doctor
+- `openclaw.plugin.json` schema 新增上述兼容字段声明，避免被严格校验误判成 inline 账户
+- `delivery.reasoning.mode/title/maxChars`，可控制 WeCom `<think>` / reasoning 内容分离显示、合并到最终回复或隐藏
+- `delivery.replyFormat`，支持 `auto / text / markdown`，可按链路保留 markdown 或自动回退纯文本
+- 最终回复支持 `MEDIA:` / `FILE:` 指令；Bot / Agent 会自动隐藏指令行并回传对应媒体
+- Pending Reply 新增可选持久化，支持把可靠投递状态落盘并在 gateway 重启后恢复
+- `wecom:selfcheck`、`wecom:agent:selfcheck`、`wecom:bot:selfcheck` 新增 persistence / reasoning 摘要
+- channel metadata 新增结构化 quickstart modes，可直接暴露 `bot_long_connection / agent_callback / hybrid` 三种 starter config
+- 新增 `npm run wecom:quickstart`，可打印或合并写入 starter config，并自动备份原 `openclaw.json`
+- quickstart 新增群策略模板：`inherit / mention_only / open_direct / allowlist_template / deny`，支持用 `--group-profile` 直接生成常见群策略配置
+- 新增显式群聊准入策略：`groupPolicy`、`groupChat.policy`、`groups.<chatId>.policy`，支持 `open / allowlist / deny`
+- `/status` 与 selfcheck 新增群策略诊断摘要，直接显示当前命中的群规则来源、触发模式和白名单是否处于生效状态
+- quickstart 新增 setup plan：可直接产出 `placeholders / setupChecklist / warnings`，并通过 runtime metadata 暴露 `supportsSetupPlan / setupCommand / writeCommand`
+- quickstart 新增 `--wizard` 交互式向导，可逐步选择 mode / dm / group profile，并在最后确认是否写入配置
+- quickstart 新增 `--run-checks / --force-checks`，可直接串起推荐 selfcheck，并在 JSON 输出里返回 `postcheck` 摘要
+- quickstart `postcheck` 新增 remediation 归纳，会把常见失败信号翻译成下一步修复建议
+- quickstart `postcheck` 新增 `repairArtifacts`，可直接产出最小 `configPatch` 与 `.env` 模板，减少手工补配置
+- quickstart 新增 `--repair-dir`，可把 `repairArtifacts` 直接落盘为 `wecom.config-patch.json`、`wecom.account-patch.json`、`wecom.env.template`
+- quickstart 新增 `--apply-repair`，可把生成的 repair patch 直接 merge 到目标 `openclaw.json` 并保留备份
+- quickstart 新增 `--confirm-repair`，可先预览将要变更的字段，再确认是否真正应用 repair patch
+- quickstart setup plan / `--json` 新增 `actions`、`installState`、`migrationState`，便于 CLI / UI 直接消费接入闭环动作
+- quickstart `postcheck` 新增 `repairPlan`，会结构化列出 repair 的配置变更、env 变更和预计文件输出
+- `repairApply` / starter `write` 新增 `changedPaths`，可直接看到真实落盘的字段
+- 新增 `npm run wecom:migrate`，可独立盘点 `legacy_config / mixed_layout / stale_package` 并生成迁移 patch 与 env 模板
+- 新增 `npm run wecom:doctor`，可统一聚合 migration、自检、Agent/Bot E2E、Bot 长连接探针和公网回调矩阵
+- 新增单独安装器包 `@dingxiang-me/openclaw-wecom-cli`，支持 `npx -y @dingxiang-me/openclaw-wecom-cli install`
+- 外部安装器 `install --json` 现在会输出 `migration.guide`、legacy 字段路径和回滚命令，并支持 `--confirm-doctor-fix / --no-doctor-fix / --yes`
+- 外部安装器 `install --json` 新增结构化 `actions`，可直接消费来源审阅、迁移 patch、回滚和重跑 doctor 的动作列表
+- 外部安装器在未显式传 `--mode` 时，会按来源和当前配置能力自动选择 `bot_long_connection / agent_callback / hybrid`，并在 `sourceProfile` 里解释决策
+- 外部安装器 `sourceProfile` 新增来源专属 `checkOrder / repairDefaults`；官方 / legacy 来源默认自动附带 `doctor --fix`，sunnoy / mixed-source 默认先给修复建议
+- quickstart `--json` 新增 `sourcePlaybook`，会按当前来源返回推荐检查顺序、占位项提示和默认 repair 策略
+- quickstart metadata 新增 `supportsActions / supportsMigration / supportsRepairPlan / supportsConfirmRepair / migrationCommand`
+- 新增 `npm run test:e2e:local`，黑盒验证本地 `install -> doctor -> fix -> rerun` 闭环
+- 新增 `npm run test:release`，统一检查 root 包、installer CLI、manifest、运行时版本常量和 `npm pack --dry-run` 产物
+- CI 新增 `Onboarding E2E` 与 `Release Check` 两条门禁；tag 发布新增 release workflow，顺序发布插件包与 installer CLI
+- WeCom 插件新增 `setup.applyAccountConfig / applyAccountName / validateInput`，`openclaw channels add --channel wecom --use-env` 现在可用
+- `channels add` 文档补充为 env-backed WeCom 初始化路径，并明确剩余限制来自 OpenClaw core 当前通用参数集合
+
+### Changed
+- WeCom API token / send / media / doc 链路现在统一支持自定义 `apiBaseUrl`
+- `wecom:selfcheck`、`wecom:agent:selfcheck`、`wecom:bot:selfcheck` 已补齐这些兼容字段的识别，不再把它们误判成 legacy inline 账号
+- Bot fallback、Agent 最终回复和 `/status` 现在都会按 reasoning 策略统一处理可见文本与思考内容
+- 可靠投递状态存储支持导出/恢复，Pending Reply 不再局限于纯内存生命周期
+- package.json / openclaw.plugin.json / runtime channel meta 的接入元数据已同步，便于 installer / quickstart / doctor 和后续集成入口直接消费
+- package.json / openclaw.plugin.json / runtime channel meta 现在会同时暴露 `supportsDoctor / doctorCommand`
+- package metadata / runtime quickstart 现在会同时暴露 `supportsExternalInstaller / installerSpec / installerCommand`
+- 群聊发送者校验不再只依赖 `allowFrom` 是否非空推断；`/status`、manifest、UI schema 与运行时现在统一展示显式 `groupPolicy`
+- selfcheck 的 legacy inline 账号发现保留字同步补齐 `groupPolicy/groupAllowFrom/groups`，避免把群策略字段误判成账号 ID
+- `wecom:selfcheck` 现在会直接显示 install / migration 状态，并在检测到 legacy 布局时指向 `npm run wecom:migrate -- --json`
+- 版本一致性回归不再硬编码具体版本号，改为强校验 root 包、CLI 包、manifest 与运行时常量同步
+
+## [2.2.0] - 2026-03-14
+
+### Added
+- 新增 WeCom 可靠投递状态跟踪，统一记录 `24h` 回复窗口、主动发送额度和当前会话/账户的 Pending Reply 数量
+- 新增 Pending Reply 队列与重试管理器，支持失败最终回复的定时补发和“下次入站优先补发”
+- `/status` 新增可靠投递摘要，直接展示窗口状态、额度状态和最近失败原因
+- `wecom:selfcheck`、`wecom:agent:selfcheck`、`wecom:bot:selfcheck` 新增 `reliable-delivery` 摘要
+
+### Changed
+- WeCom Bot delivery router 现在会输出标准化 `deliveryStatus`，区分 `delivered / rejected_window / rejected_quota / rejected_transport / rejected_target / rejected_unknown`
+- Agent 最终文本回复和超时后的 late reply / timeout fallback 统一接入可靠投递链路
+- 配置 schema 新增 `channels.wecom.delivery.pendingReply.*` 与 `channels.wecom.delivery.quotaTracking.enabled`
+- 仓库、manifest 与运行时版本号统一升级到 `2.2.0`
+
 ## [2.1.0] - 2026-03-14
 
 ### Added

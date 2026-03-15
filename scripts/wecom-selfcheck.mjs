@@ -10,6 +10,9 @@ import {
   normalizeAccountConfig as normalizeSharedAccountConfig,
   readAccountConfigFromEnv as readSharedAccountConfigFromEnv,
 } from "../src/wecom/account-config-core.js";
+import { resolveWecomBotModeConfig, resolveWecomGroupChatConfig } from "../src/core.js";
+import { collectWecomMigrationDiagnostics, WECOM_MIGRATION_COMMAND } from "../src/wecom/migration-diagnostics.js";
+import { buildWecomApiUrl, isWecomApiUrl, resolveWecomApiBaseUrl } from "../src/wecom/network-config.js";
 import { PLUGIN_VERSION } from "../src/wecom/plugin-constants.js";
 
 const PROXY_DISPATCHER_CACHE = new Map();
@@ -17,6 +20,9 @@ const INVALID_PROXY_CACHE = new Set();
 const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "name",
   "enabled",
+  "botId",
+  "botid",
+  "secret",
   "corpId",
   "corpSecret",
   "agentId",
@@ -28,9 +34,14 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "outboundProxy",
   "proxyUrl",
   "proxy",
+  "network",
+  "apiBaseUrl",
   "webhooks",
   "allowFrom",
   "allowFromRejectMessage",
+  "groupPolicy",
+  "groupAllowFrom",
+  "groupAllowFromRejectMessage",
   "rejectUnauthorizedMessage",
   "adminUsers",
   "commandAllowlist",
@@ -38,6 +49,7 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "commands",
   "workspaceTemplate",
   "groupChat",
+  "groups",
   "dynamicAgent",
   "dynamicAgents",
   "dm",
@@ -127,6 +139,11 @@ function normalizeAccountId(accountId) {
   return normalized || "default";
 }
 
+function buildDefaultBotWebhookPath(accountId) {
+  const normalized = normalizeAccountId(accountId);
+  return normalized === "default" ? "/wecom/bot/callback" : `/wecom/${normalized}/bot/callback`;
+}
+
 function asNumber(v, fallback = null) {
   if (v == null) return fallback;
   const n = Number(v);
@@ -195,13 +212,81 @@ function summarizeAccounts(accountReports) {
   };
 }
 
+function formatGroupSourceLabel(source = "") {
+  const normalized = String(source ?? "").trim();
+  if (!normalized) return "none";
+  if (normalized === "default") return "default";
+  if (normalized === "inferred") return "inferred";
+  if (normalized.startsWith("env.")) return "env";
+  if (normalized.startsWith("account.group")) return "account-group";
+  if (normalized.startsWith("account.groupChat")) return "account-group-default";
+  if (normalized.startsWith("account.root")) return "account-root";
+  if (normalized.startsWith("channel.group")) return "channel-group";
+  if (normalized.startsWith("channel.groupChat")) return "channel-group-default";
+  if (normalized.startsWith("channel.root")) return "channel-root";
+  return normalized;
+}
+
+function buildGroupPolicyOverview({ config = {}, accountConfig = {}, accountId = "default" } = {}) {
+  const groupPolicy = resolveWecomGroupChatConfig({
+    channelConfig: config?.channels?.wecom ?? {},
+    accountConfig,
+    envVars: config?.env?.vars ?? {},
+    processEnv: process.env,
+    accountId,
+  });
+  const allowFrom = Array.isArray(groupPolicy?.allowFrom) ? groupPolicy.allowFrom : [];
+  const allowSummary =
+    groupPolicy?.policyMode === "allowlist"
+      ? String(allowFrom.length)
+      : allowFrom.length > 0 && !allowFrom.includes("*")
+        ? `${allowFrom.length}(inactive)`
+        : "open";
+  return {
+    mode: String(groupPolicy?.policyMode ?? "open"),
+    trigger: String(groupPolicy?.triggerMode ?? "direct"),
+    allowSummary,
+    groups: Number(groupPolicy?.configuredGroupCount || 0),
+    source: formatGroupSourceLabel(groupPolicy?.policySource),
+  };
+}
+
 function buildAccountOverview({ config, resolved } = {}) {
   const bindingsCount = Array.isArray(config?.bindings) ? config.bindings.length : 0;
   const dynamicAgentEnabled =
     config?.channels?.wecom?.dynamicAgent?.enabled === true || config?.channels?.wecom?.dynamicAgents?.enabled === true;
-  const canReceive = Boolean(resolved?.callbackToken && resolved?.callbackAesKey && resolved?.webhookPath);
-  const canReply = Boolean(resolved?.corpId && resolved?.corpSecret && resolved?.agentId);
+  const deliveryConfig = config?.channels?.wecom?.delivery ?? {};
+  const pendingReplyConfig = deliveryConfig?.pendingReply ?? {};
+  const reasoningConfig = deliveryConfig?.reasoning ?? {};
+  const pendingReplyEnabled = pendingReplyConfig?.enabled !== false;
+  const pendingReplyPersist = pendingReplyEnabled && pendingReplyConfig?.persist !== false;
+  const pendingReplyStoreFile = pickFirstNonEmptyString(pendingReplyConfig?.storeFile) || null;
+  const quotaTrackingEnabled = deliveryConfig?.quotaTracking?.enabled !== false;
+  const reasoningMode = (() => {
+    const explicit = pickFirstNonEmptyString(reasoningConfig?.mode).toLowerCase();
+    if (explicit === "append" || explicit === "hidden" || explicit === "separate") return explicit;
+    if (reasoningConfig?.includeInFinalAnswer === true) return "append";
+    if (reasoningConfig?.sendThinkingMessage === false) return "hidden";
+    return "separate";
+  })();
+  const agentCanReceive = Boolean(resolved?.callbackToken && resolved?.callbackAesKey && resolved?.webhookPath);
+  const agentCanReply = Boolean(resolved?.corpId && resolved?.corpSecret && resolved?.agentId);
+  const botLongConnectionEnabled =
+    resolved?.enabled !== false &&
+    Boolean(pickFirstNonEmptyString(resolved?.bot?.longConnection?.botId, resolved?.bot?.longConnection?.botid)) &&
+    Boolean(pickFirstNonEmptyString(resolved?.bot?.longConnection?.secret));
+  const botWebhookEnabled =
+    resolved?.enabled !== false &&
+    Boolean(pickFirstNonEmptyString(resolved?.bot?.token)) &&
+    Boolean(pickFirstNonEmptyString(resolved?.bot?.encodingAesKey));
+  const canReceive = agentCanReceive || botLongConnectionEnabled || botWebhookEnabled;
+  const canReply = agentCanReply || botLongConnectionEnabled || botWebhookEnabled;
   const docEnabled = resolved?.tools?.doc !== false;
+  const groupPolicy = buildGroupPolicyOverview({
+    config,
+    accountConfig: resolved,
+    accountId: resolved?.accountId || "default",
+  });
   return {
     canReceive,
     canReply,
@@ -209,6 +294,16 @@ function buildAccountOverview({ config, resolved } = {}) {
     docEnabled,
     bindingsCount,
     dynamicAgentEnabled,
+    pendingReplyEnabled,
+    pendingReplyPersist,
+    pendingReplyStoreFile,
+    quotaTrackingEnabled,
+    reasoningMode,
+    reasoningTitle: pickFirstNonEmptyString(reasoningConfig?.title, "思考过程"),
+    reasoningMaxChars: Math.max(64, asNumber(reasoningConfig?.maxChars, 1200) || 1200),
+    groupPolicy,
+    botLongConnectionEnabled,
+    botWebhookEnabled,
   };
 }
 
@@ -313,22 +408,15 @@ function sanitizeProxyForLog(proxyUrl) {
   }
 }
 
-function isWecomApiUrl(url) {
-  const raw = String(url ?? "");
-  if (!raw) return false;
-  try {
-    const parsed = new URL(raw);
-    return parsed.hostname === "qyapi.weixin.qq.com";
-  } catch {
-    return raw.includes("qyapi.weixin.qq.com");
-  }
-}
-
 function readAccountProxyEnv(envVars, accountId) {
   const normalizedId = normalizeAccountId(accountId);
   const scopedKey = normalizedId === "default" ? null : `WECOM_${normalizedId.toUpperCase()}_PROXY`;
+  const scopedEgressKey = normalizedId === "default" ? null : `WECOM_${normalizedId.toUpperCase()}_EGRESS_PROXY_URL`;
   return String(
-    (scopedKey ? envVars?.[scopedKey] ?? process.env[scopedKey] : undefined) ??
+    (scopedEgressKey ? envVars?.[scopedEgressKey] ?? process.env[scopedEgressKey] : undefined) ??
+      (scopedKey ? envVars?.[scopedKey] ?? process.env[scopedKey] : undefined) ??
+      envVars?.WECOM_EGRESS_PROXY_URL ??
+      process.env.WECOM_EGRESS_PROXY_URL ??
       envVars?.WECOM_PROXY ??
       process.env.WECOM_PROXY ??
       process.env.HTTPS_PROXY ??
@@ -348,8 +436,20 @@ function resolveAccountProxy(config, resolved) {
   return fromEnv || "";
 }
 
-function attachProxyDispatcher(url, fetchOptions = {}, proxyUrl) {
-  if (!proxyUrl || !isWecomApiUrl(url) || fetchOptions.dispatcher) return fetchOptions;
+function resolveAccountApiBaseUrl(config, resolved) {
+  const channelConfig = config?.channels?.wecom ?? {};
+  const envVars = config?.env?.vars ?? {};
+  return resolveWecomApiBaseUrl({
+    channelConfig,
+    accountConfig: resolved ?? {},
+    envVars,
+    processEnv: process.env,
+    accountId: resolved?.accountId ?? "default",
+  });
+}
+
+function attachProxyDispatcher(url, fetchOptions = {}, proxyUrl, apiBaseUrl = "") {
+  if (!proxyUrl || !isWecomApiUrl(url, { apiBaseUrl }) || fetchOptions.dispatcher) return fetchOptions;
   const printableProxy = sanitizeProxyForLog(proxyUrl);
   if (!isLikelyHttpProxyUrl(proxyUrl)) {
     if (!INVALID_PROXY_CACHE.has(proxyUrl)) {
@@ -491,6 +591,133 @@ function normalizeResolvedAccount(raw, accountId, source) {
   };
 }
 
+function hasBotCompatConfig(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const bot = raw?.bot && typeof raw.bot === "object" && !Array.isArray(raw.bot) ? raw.bot : {};
+  const longConnection =
+    bot?.longConnection && typeof bot.longConnection === "object" && !Array.isArray(bot.longConnection)
+      ? bot.longConnection
+      : {};
+  return Boolean(
+    pickFirstNonEmptyString(
+      raw?.botId,
+      raw?.botid,
+      raw?.secret,
+      raw?.token,
+      raw?.encodingAesKey,
+      bot?.token,
+      bot?.callbackToken,
+      bot?.encodingAesKey,
+      bot?.callbackAesKey,
+      longConnection?.botId,
+      longConnection?.botid,
+      longConnection?.secret,
+    ),
+  );
+}
+
+function normalizeResolvedBotAccount({ config, accountId, source, fallbackFor = null } = {}) {
+  const bot = resolveWecomBotModeConfig({
+    channelConfig: config?.channels?.wecom ?? {},
+    envVars: config?.env?.vars ?? {},
+    processEnv: process.env,
+    accountId,
+  });
+  const longConnection = bot?.longConnection && typeof bot.longConnection === "object" ? bot.longConnection : {};
+  const longConnectionEnabled =
+    bot?.enabled !== false &&
+    (longConnection?.enabled === true ||
+      (Boolean(pickFirstNonEmptyString(longConnection?.botId, longConnection?.botid)) &&
+        Boolean(pickFirstNonEmptyString(longConnection?.secret))));
+  const webhookEnabled =
+    bot?.enabled !== false &&
+    Boolean(pickFirstNonEmptyString(bot?.token, bot?.callbackToken)) &&
+    Boolean(pickFirstNonEmptyString(bot?.encodingAesKey, bot?.callbackAesKey));
+  if (!longConnectionEnabled && !webhookEnabled) return null;
+  return {
+    accountId: normalizeAccountId(accountId),
+    source,
+    enabled: bot?.enabled !== false,
+    webhookPath: pickFirstNonEmptyString(bot?.webhookPath, buildDefaultBotWebhookPath(accountId)),
+    botOnly: true,
+    fallbackFor,
+    bot: {
+      webhookEnabled,
+      longConnection: {
+        enabled: longConnectionEnabled,
+        botId: pickFirstNonEmptyString(longConnection?.botId, longConnection?.botid) || undefined,
+        secret: pickFirstNonEmptyString(longConnection?.secret) || undefined,
+      },
+      token: pickFirstNonEmptyString(bot?.token, bot?.callbackToken) || undefined,
+      encodingAesKey: pickFirstNonEmptyString(bot?.encodingAesKey, bot?.callbackAesKey) || undefined,
+      webhookPath: pickFirstNonEmptyString(bot?.webhookPath, buildDefaultBotWebhookPath(accountId)),
+    },
+  };
+}
+
+function resolveBotAccountFromConfig(config, accountId, options = {}) {
+  const allowFallback = options.allowFallback !== false;
+  const normalizedId = normalizeAccountId(accountId);
+  const channelConfig = config?.channels?.wecom;
+
+  if (channelConfig && normalizedId === "default" && hasBotCompatConfig(channelConfig)) {
+    const byTop = normalizeResolvedBotAccount({
+      config,
+      accountId: "default",
+      source: "channels.wecom",
+    });
+    if (byTop) return byTop;
+  }
+
+  const byAccountsRaw = channelConfig?.accounts?.[normalizedId];
+  if (hasBotCompatConfig(byAccountsRaw)) {
+    const byAccounts = normalizeResolvedBotAccount({
+      config,
+      accountId: normalizedId,
+      source: `channels.wecom.accounts.${normalizedId}`,
+    });
+    if (byAccounts) return byAccounts;
+  }
+
+  const byLegacyInlineRaw =
+    normalizedId !== "default" && !LEGACY_INLINE_ACCOUNT_RESERVED_KEYS.has(normalizedId) ? channelConfig?.[normalizedId] : null;
+  if (hasBotCompatConfig(byLegacyInlineRaw)) {
+    const byLegacyInline = normalizeResolvedBotAccount({
+      config,
+      accountId: normalizedId,
+      source: `channels.wecom.${normalizedId}`,
+    });
+    if (byLegacyInline) return byLegacyInline;
+  }
+
+  const byEnv = normalizeResolvedBotAccount({
+    config,
+    accountId: normalizedId,
+    source: "env",
+  });
+  if (byEnv) return byEnv;
+
+  if (allowFallback && normalizedId !== "default") {
+    const fallbackCandidates = [
+      { raw: channelConfig, source: "channels.wecom" },
+      { raw: channelConfig?.accounts?.default, source: "channels.wecom.accounts.default" },
+      { raw: null, source: "env" },
+    ];
+    for (const candidate of fallbackCandidates) {
+      if (candidate.raw != null && !hasBotCompatConfig(candidate.raw)) continue;
+      const fallbackDefault = normalizeResolvedBotAccount({
+        config,
+        accountId: "default",
+        source: candidate.source,
+        fallbackFor: normalizedId,
+      });
+      if (fallbackDefault) return fallbackDefault;
+    }
+  }
+
+  return null;
+}
+
 function resolveAccountFromConfig(config, accountId, options = {}) {
   const allowFallback = options.allowFallback !== false;
   const normalizedId = normalizeAccountId(accountId);
@@ -533,6 +760,9 @@ function resolveAccountFromConfig(config, accountId, options = {}) {
 
   const byEnv = readAccountConfigFromEnv(envVars, normalizedId);
   if (byEnv) return attachWebhookTargets(byEnv);
+
+  const byBot = resolveBotAccountFromConfig(config, normalizedId, { allowFallback });
+  if (byBot) return attachWebhookTargets(byBot);
 
   if (allowFallback && normalizedId !== "default") {
     const fallbackDefault =
@@ -582,7 +812,7 @@ function discoverAccountIds(config) {
   return ordered;
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs, proxyUrl = "", fetchOptions = {}) {
+async function fetchJsonWithTimeout(url, timeoutMs, proxyUrl = "", apiBaseUrl = "", fetchOptions = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -592,9 +822,11 @@ async function fetchJsonWithTimeout(url, timeoutMs, proxyUrl = "", fetchOptions 
         url,
         {
           ...fetchOptions,
+          apiBaseUrl,
           signal: controller.signal,
         },
         proxyUrl,
+        apiBaseUrl,
       ),
     );
     const text = await res.text();
@@ -701,6 +933,8 @@ async function runAccountChecks({ config, accountId, args }) {
     ),
   );
 
+  const botOnlyAccount = resolved?.botOnly === true && !(resolved?.corpId && resolved?.corpSecret && resolved?.agentId);
+
   const required = [
     ["corpId", resolved.corpId],
     ["corpSecret", resolved.corpSecret],
@@ -709,15 +943,21 @@ async function runAccountChecks({ config, accountId, args }) {
     ["callbackAesKey", resolved.callbackAesKey],
   ];
   for (const [k, v] of required) {
-    checks.push(makeCheck(`config.${k}`, Boolean(v), v ? "ok" : "missing"));
+    checks.push(
+      makeCheck(
+        `config.${k}`,
+        botOnlyAccount ? true : Boolean(v),
+        botOnlyAccount ? "not required for bot-only account" : v ? "ok" : "missing",
+      ),
+    );
   }
 
-  const aes = decodeAesKey(resolved.callbackAesKey || "");
+  const aes = botOnlyAccount ? null : decodeAesKey(resolved.callbackAesKey || "");
   checks.push(
     makeCheck(
       "config.callbackAesKey.length",
-      aes?.length === 32,
-      `decoded-bytes=${aes?.length ?? 0} (expected 32)`,
+      botOnlyAccount ? true : aes?.length === 32,
+      botOnlyAccount ? "not required for bot-only account" : `decoded-bytes=${aes?.length ?? 0} (expected 32)`,
     ),
   );
 
@@ -764,6 +1004,7 @@ async function runAccountChecks({ config, accountId, args }) {
   );
 
   const outboundProxy = resolveAccountProxy(config, resolved);
+  const apiBaseUrl = resolveAccountApiBaseUrl(config, resolved);
   const proxyValid = !outboundProxy || isLikelyHttpProxyUrl(outboundProxy);
   checks.push(
     makeCheck(
@@ -774,13 +1015,23 @@ async function runAccountChecks({ config, accountId, args }) {
         : "not configured (direct access to qyapi.weixin.qq.com required)",
     ),
   );
+  checks.push(
+    makeCheck(
+      "config.apiBaseUrl",
+      Boolean(apiBaseUrl),
+      `configured (${apiBaseUrl})`,
+      { apiBaseUrl },
+    ),
+  );
 
   if (!args.skipNetwork && resolved.enabled !== false && resolved.corpId && resolved.corpSecret) {
-    const tokenUrl =
-      `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${encodeURIComponent(resolved.corpId)}` +
-      `&corpsecret=${encodeURIComponent(resolved.corpSecret)}`;
+    const tokenUrl = buildWecomApiUrl(
+      `/cgi-bin/gettoken?corpid=${encodeURIComponent(resolved.corpId)}` +
+        `&corpsecret=${encodeURIComponent(resolved.corpSecret)}`,
+      { apiBaseUrl },
+    );
     try {
-      const tokenResp = await fetchJsonWithTimeout(tokenUrl, args.timeoutMs, outboundProxy);
+      const tokenResp = await fetchJsonWithTimeout(tokenUrl, args.timeoutMs, outboundProxy, apiBaseUrl);
       const token = tokenResp.json?.access_token;
       const errcode = Number(tokenResp.json?.errcode ?? -1);
       checks.push(
@@ -798,8 +1049,11 @@ async function runAccountChecks({ config, accountId, args }) {
       );
 
       if (token) {
-        const cbIpUrl = `https://qyapi.weixin.qq.com/cgi-bin/getcallbackip?access_token=${encodeURIComponent(token)}`;
-        const cbIpResp = await fetchJsonWithTimeout(cbIpUrl, args.timeoutMs, outboundProxy);
+        const cbIpUrl = buildWecomApiUrl(
+          `/cgi-bin/getcallbackip?access_token=${encodeURIComponent(token)}`,
+          { apiBaseUrl },
+        );
+        const cbIpResp = await fetchJsonWithTimeout(cbIpUrl, args.timeoutMs, outboundProxy, apiBaseUrl);
         const cbErr = Number(cbIpResp.json?.errcode ?? -1);
         checks.push(
           makeCheck(
@@ -849,10 +1103,12 @@ async function runAccountChecks({ config, accountId, args }) {
       source: resolved.source,
       enabled: resolved.enabled,
       webhookPath: resolved.webhookPath,
+      botOnly: resolved.botOnly === true,
       webhookTargetCount: webhookAliases.length,
       outboundProxy: outboundProxy ? sanitizeProxyForLog(outboundProxy) : null,
       fallbackFor: resolved.fallbackFor || null,
     },
+    overview: buildAccountOverview({ config, resolved }),
     checks,
     summary: summarize(checks),
   };
@@ -870,12 +1126,27 @@ function reportAndExit(report, asJson = false) {
   console.log(
     `- mode: ${report.args.allAccounts ? "all-accounts" : `single-account (${report.args.account})`}`,
   );
+  if (report.installState) {
+    console.log(`- installState: ${report.installState}`);
+  }
+  if (report.installStateSummary) {
+    console.log(`- installSummary: ${report.installStateSummary}`);
+  }
+  if (report.migrationState) {
+    console.log(`- migrationState: ${report.migrationState}`);
+  }
+  if (report.migrationStateSummary) {
+    console.log(`- migrationSummary: ${report.migrationStateSummary}`);
+  }
+  if (Array.isArray(report.detectedLegacyFields) && report.detectedLegacyFields.length > 0) {
+    console.log(`- migrationCommand: ${report.migrationCommand || WECOM_MIGRATION_COMMAND}`);
+  }
 
   for (const accountReport of report.accounts) {
     console.log(`\nAccount: ${accountReport.accountId}`);
     if (accountReport.resolved) {
       const meta = accountReport.resolved;
-      const overview = buildAccountOverview({ config: report.config, resolved: meta });
+      const overview = accountReport.overview ?? buildAccountOverview({ config: report.config, resolved: meta });
       console.log(
         `- resolved: ${meta.accountId} source=${meta.source}${meta.fallbackFor ? ` fallback-for=${meta.fallbackFor}` : ""}`,
       );
@@ -887,6 +1158,15 @@ function reportAndExit(report, asJson = false) {
       );
       console.log(
         `- routing: bindings=${overview.bindingsCount} dynamicAgent=${overview.dynamicAgentEnabled ? "on" : "off"}`,
+      );
+      console.log(
+        `- reliable-delivery: pendingReply=${overview.pendingReplyEnabled ? "on" : "off"} persist=${overview.pendingReplyPersist ? "on" : "off"} quotaTracking=${overview.quotaTrackingEnabled ? "on" : "off"} store=${overview.pendingReplyPersist ? overview.pendingReplyStoreFile || "(auto)" : "(disabled)"}`,
+      );
+      console.log(
+        `- group-policy: mode=${overview.groupPolicy.mode} trigger=${overview.groupPolicy.trigger} allowFrom=${overview.groupPolicy.allowSummary} groups=${overview.groupPolicy.groups} source=${overview.groupPolicy.source}`,
+      );
+      console.log(
+        `- reasoning: mode=${overview.reasoningMode} title=${overview.reasoningTitle} maxChars=${overview.reasoningMaxChars}`,
       );
     }
     for (const check of accountReport.checks) {
@@ -959,6 +1239,10 @@ async function main() {
     args,
     configPath,
     config,
+    ...collectWecomMigrationDiagnostics({
+      config,
+      accountId: args.account,
+    }),
     accounts: accountReports,
     summary: summarizeAccounts(accountReports),
   };

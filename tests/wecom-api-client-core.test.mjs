@@ -86,6 +86,39 @@ test("createWecomApiClientCore caches access token by corpId and corpSecret", as
   assert.equal(tokenCalls, 1);
 });
 
+test("createWecomApiClientCore supports custom api base url for proxy attach and token fetch", async () => {
+  const requests = [];
+  const core = createWecomApiClientCore({
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url: String(url), dispatcher: options.dispatcher });
+      return createJsonResponse({ errcode: 0, access_token: "token-custom", expires_in: 7200 });
+    },
+    proxyAgentCtor: class FakeProxyAgent {
+      constructor(url) {
+        this.url = url;
+      }
+    },
+    sleep: async () => {},
+  });
+
+  const attached = core.attachWecomProxyDispatcher(
+    "https://wecom.internal/cgi-bin/gettoken",
+    { apiBaseUrl: "https://wecom.internal" },
+    { proxyUrl: "http://127.0.0.1:8080" },
+  );
+  assert.ok(attached.dispatcher);
+
+  const token = await core.getWecomAccessToken({
+    corpId: "ww-core",
+    corpSecret: "secret",
+    apiBaseUrl: "https://wecom.internal",
+    proxyUrl: "http://127.0.0.1:8080",
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  assert.equal(token, "token-custom");
+  assert.match(requests[0]?.url ?? "", /^https:\/\/wecom\.internal\/cgi-bin\/gettoken\?/);
+});
+
 test("createWecomApiClientCore isolates access token cache across secrets in the same corp", async () => {
   const calls = [];
   const core = createWecomApiClientCore({

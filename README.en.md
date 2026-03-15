@@ -10,7 +10,7 @@ OpenClaw-Wechat is an OpenClaw channel plugin for Enterprise WeChat (WeCom), wit
 
 ## Table of Contents
 
-- [Onboarding Update (v2.1.0)](#onboarding-update-v210)
+- [Reliable Delivery Update (v2.2.0)](#reliable-delivery-update-v220)
 - [Highlights](#highlights)
 - [Mode Comparison](#mode-comparison)
 - [5-Minute Quick Start](#5-minute-quick-start)
@@ -28,27 +28,29 @@ OpenClaw-Wechat is an OpenClaw channel plugin for Enterprise WeChat (WeCom), wit
 - [Development](#development)
 - [FAQ](#faq)
 
-## Onboarding Update (v2.1.0)
+## Reliable Delivery Update (v2.2.0)
 
-This release focuses on setup quality, not feature sprawl. The goal is to make `OpenClaw-Wechat` behave more like a native OpenClaw channel during install and first-run.
+This release focuses on reply reliability rather than new surface area. The goal is to make WeCom delivery visible, retryable, and diagnosable.
 
 ### What changed
 
 | Item | Result |
 |---|---|
-| DM pairing approval | Added `dm.mode=pairing`, backed by OpenClaw native pairing flow |
-| Quickstart metadata | Added `detailLabel`, `systemImage`, and `quickstartAllowFrom` |
-| `/status` readability | Status now leads with `receive / reply / send / media / voice / doc` readiness |
-| Selfcheck summaries | `wecom:selfcheck`, `wecom:agent:selfcheck`, and `wecom:bot:selfcheck` now print `readiness` and `routing` summaries |
-| Route visibility | Status and selfcheck now show whether routing comes from `bindings` or `dynamicAgent` |
-| Long-connection log noise | Normal connect / opened / subscribed logs moved to `debug` |
+| Reliable-delivery status | `/status` now shows `24h window / proactive quota / Pending Reply` summary |
+| Pending Reply | final replies that fail to deliver are queued for retry and next-inbound replay |
+| Failure classification | delivery now distinguishes `window expired / quota exhausted / transport failure / invalid target` |
+| Selfcheck summaries | `wecom:selfcheck`, `wecom:agent:selfcheck`, and `wecom:bot:selfcheck` now print `reliable-delivery` summaries |
+| Group-policy diagnostics | `/status` and selfcheck now show group rule source, access mode, and whether allowlists are actually active |
+| Bot/Agent convergence | bot fallback and agent final reply now share the same reliable-delivery tracking |
+| Long-connection log noise | normal connect / opened / subscribed logs stay at `debug` |
 
 ### Practical impact
 
-- New users can start from the smallest working config, then add multi-account or dynamic routing later.
-- Teams that want controlled DM access can now use `pairing` instead of maintaining `allowFrom` only.
-- `/status` and selfcheck answer “can it receive, reply, and send?” before lower-level transport details.
-- Bot long-connection is quieter by default while still keeping useful warnings and errors.
+- You can now see whether the current session is still inside the 24-hour reply window.
+- Group-chat policy no longer requires log forensics: `/status` and selfcheck explain which group rule is active and whether an allowlist is currently enforced.
+- Failed final replies no longer disappear into timeout-only fallbacks; they move into Pending Reply retry flow.
+- Selfcheck now tells you whether reliable-delivery tracking is enabled, not just whether tokens and webhook paths exist.
+- Bot long-connection stays quiet by default while keeping warnings and errors visible.
 
 ## Highlights
 
@@ -85,11 +87,39 @@ This release focuses on setup quality, not feature sprawl. The goal is to make `
 
 ### 1) Install plugin
 
+Fastest path:
+
+```bash
+npx -y @dingxiang-me/openclaw-wecom-cli install
+```
+
+This wraps the same quickstart / migrate / doctor flow and turns plugin install + starter config write into one command.
+
+If you want to stay inside this repo, run the same flow with:
+
+```bash
+npm run wecom:quickstart -- --mode bot_long_connection
+npm run wecom:doctor -- --json
+```
+
+If you already have `WECOM_*` / `WECOM_BOT_*` env vars prepared, WeCom also supports an env-backed `channels add` flow:
+
+```bash
+export WECOM_BOT_LONG_CONNECTION_BOT_ID=your-bot-id
+export WECOM_BOT_LONG_CONNECTION_SECRET=your-bot-secret
+openclaw channels add --channel wecom --use-env
+```
+
+This works without any OpenClaw core patch because the plugin exposes `setup.applyAccountConfig` for WeCom. It can persist Agent/Bot settings discovered from env vars into `openclaw.json`.  
+Treat it as an advanced env-backed compatibility path, not the primary onboarding flow. For full setup, migration, and repair, the external installer remains the recommended path.
+
+If you only want the plugin package itself:
+
 ```bash
 openclaw plugins install @dingxiang-me/openclaw-wechat
 ```
 
-Recommended minimum package version: `2.1.0`. If `plugins.installs.openclaw-wechat` in `openclaw.json` still reports `1.7.x`, upgrade or reinstall first; those older npm packages do not expose the current WeCom channel metadata.
+Recommended minimum package version: `2.3.0`. If `plugins.installs.openclaw-wechat` in `openclaw.json` still reports `1.7.x`, upgrade or reinstall first; those older npm packages do not expose the current WeCom onboarding, migration, or reliable-delivery capabilities.
 
 For local development or direct source-path loading, use:
 
@@ -318,12 +348,131 @@ When multi-account is enabled, each account can override Bot callback credential
 | Direct-message policy | `dm.mode`, `dm.allowFrom`, `dm.rejectMessage` (`open / allowlist / pairing / deny`) |
 | Event policy | `events.enabled`, `events.enterAgentWelcomeEnabled`, `events.enterAgentWelcomeText` |
 | Group trigger | `groupChat.enabled`, `groupChat.triggerMode`, `groupChat.mentionPatterns`, `groupChat.triggerKeywords` |
+| Group policy | `groupPolicy`, `groupChat.policy`, `groups.<chatId>.policy` (`open / allowlist / deny`) |
+| Group member ACL | `groupAllowFrom`, `groups.<chatId>.allowFrom` (used with `allowlist`) |
 | Dynamic route | `dynamicAgent.*` (compatible with `dynamicAgents.*`, `dm.createAgentOnFirstMessage`) |
 | Debounce | `debounce.enabled`, `debounce.windowMs`, `debounce.maxBatch` |
 | Agent streaming | `streaming.enabled`, `streaming.minChars`, `streaming.minIntervalMs` |
+| Pending Reply persistence | `delivery.pendingReply.persist`, `delivery.pendingReply.storeFile` |
+| Reasoning visibility | `delivery.reasoning.mode`, `delivery.reasoning.title`, `delivery.reasoning.maxChars` |
+| Final reply format | `delivery.replyFormat` (`auto / text / markdown`) |
 | Observability | `observability.enabled`, `observability.logPayloadMeta` |
 
 ### OpenClaw bindings for account-level routing
+
+Package metadata, plugin manifest, and runtime channel meta now expose the same quickstart modes so the installer, quickstart, doctor, and future integrations can consume the same starter config and setup checklist.
+
+Fastest entry:
+
+```bash
+npx -y @dingxiang-me/openclaw-wecom-cli install
+```
+
+If you prefer the repo-local scripts, you can still generate a starter config immediately:
+
+```bash
+npm run wecom:quickstart -- --mode bot_long_connection
+```
+
+If you prefer an interactive wizard:
+
+```bash
+npm run wecom:quickstart -- --wizard
+```
+
+Common examples:
+
+```bash
+# Recommended default mode
+npm run wecom:quickstart -- --json
+
+# Walk through mode / dm / group-policy choices interactively
+npm run wecom:quickstart -- --wizard
+
+# Run the recommended selfchecks for the selected mode
+npm run wecom:quickstart -- --run-checks
+
+# Force those checks even if starter placeholders are still present
+npm run wecom:quickstart -- --run-checks --force-checks
+
+# Write a ready-to-apply config patch and .env template to disk
+npm run wecom:quickstart -- --run-checks --repair-dir ./.wecom-repair
+
+# Merge the generated repair configPatch directly into the target openclaw.json
+npm run wecom:quickstart -- --run-checks --apply-repair
+
+# Preview the fields that would change, then confirm before applying the repair patch
+npm run wecom:quickstart -- --run-checks --confirm-repair
+
+# Inspect legacy / mixed-layout config and generate a migration patch
+npm run wecom:migrate -- --json
+
+# Aggregate migration, selfchecks, E2E checks, long-connection probe, and callback matrix
+npm run wecom:doctor -- --json
+
+# Run the local black-box onboarding flow: install -> doctor -> fix -> rerun
+npm run test:e2e:local
+
+# Verify version sync and npm pack outputs for both packages
+npm run test:release
+
+# Scaffold an account-scoped Agent callback setup
+npm run wecom:quickstart -- --mode agent_callback --account sales --dm-mode allowlist
+
+# Add a ready-to-edit group allowlist template
+npm run wecom:quickstart -- --mode hybrid --group-profile allowlist_template --group-chat-id wr-ops-room --group-allow ops_lead,oncall_user
+
+# Merge into openclaw.json and create a backup first
+npm run wecom:quickstart -- --mode hybrid --write
+```
+
+Supported `--group-profile` values: `inherit`, `mention_only`, `open_direct`, `allowlist_template`, `deny`.
+`--wizard` treats any CLI flags you already passed as defaults, then walks through the remaining choices and write confirmation.
+`--run-checks` executes the recommended post-setup selfchecks for the selected mode; if placeholders are still present, execution is blocked unless you explicitly pass `--force-checks`.
+`--apply-repair` merges `postcheck.repairArtifacts.configPatch` directly into the `--config` file and creates a backup first.
+`--confirm-repair` prints the exact fields that would change, then asks before performing `--apply-repair`; the prompt stays on `stderr` so `--json` output remains machine-readable.
+`npm run wecom:migrate -- --json` skips starter generation and audits only the current install / migration state, which is useful for `legacy_config / mixed_layout / stale_package`.
+`npm run wecom:migrate -- --json` and `npm run wecom:doctor -- --json` now also report `migrationSource`, so you can tell whether the current layout looks closer to `official-wecom`, `sunnoy-wecom`, `legacy-openclaw-wechat`, or `mixed-source`.
+`npm run wecom:doctor -- --json` aggregates `migration + selfcheck + agent/bot e2e + longconn probe + callback matrix` into one report; add `--skip-network` if you want to inspect local install / migration issues first.
+`npm run wecom:doctor -- --fix --skip-network --json` applies the current local fix patch first, then reruns doctor on the merged config.
+`npm run wecom:doctor -- --confirm-fix --skip-network --json` previews the exact fields first, then asks before writing the patch.
+`npm run wecom:quickstart -- --json` now also returns `sourcePlaybook`, so the quickstart report itself can expose source-specific check order, placeholder guidance, and default repair behavior.
+`npx -y @dingxiang-me/openclaw-wecom-cli install` first tries `openclaw plugins install @dingxiang-me/openclaw-wechat`, then writes starter config and can continue with a local doctor pass.
+`npm run test:e2e:local` black-boxes the local `install -> doctor -> fix -> rerun` flow without relying on a live WeCom network.
+`npm run test:release` verifies root package, installer CLI, manifest, runtime version constants, and `npm pack --dry-run` outputs before a release.
+If the current layout looks closer to the official plugin, sunnoy, or legacy OpenClaw-Wechat, the `--json` report now includes `migration.guide`, source-specific notes, legacy field paths, and a rollback command.
+Use `--confirm-doctor-fix` if you want the installer to ask before appending `doctor --fix`; use `--no-doctor-fix` to suppress it entirely, or `--yes` to auto-confirm prompts.
+The installer `--json` report now also includes structured `actions`, so a CLI/UI layer can consume source review, migration, rollback, and rerun-doctor steps directly.
+If you do not pass `--mode`, the installer can now auto-pick `bot_long_connection / agent_callback / hybrid` from the detected source plus current capabilities, and explains that decision in `sourceProfile`.
+The repo now also ships two CI gates: `Onboarding E2E` for the local install loop, and `Release Check` for version/pack consistency; tag releases run a dedicated workflow that publishes both the plugin package and installer CLI in sequence.
+`sourceProfile` now also exposes source-specific `checkOrder` and `repairDefaults`. Official / legacy sources still default to auto-appending `doctor --fix`, while sunnoy / mixed-source defaults stay advisory until you confirm repair explicitly.
+
+The `--json` report now also includes:
+
+- `placeholders`: starter-template values you still need to replace
+- `setupChecklist`: the next admin/selfcheck steps to run
+- `actions`: structured setup actions that CLI / UI can consume directly
+- `installState / migrationState`: whether the current layout is fresh, legacy_config, stale_package, mixed_layout, or ready
+- `migrationSource / migrationSourceSummary`: whether the current layout looks closer to the official plugin, sunnoy compatibility layout, legacy-openclaw-wechat, or a mixed-source config
+- `fix`: whether doctor `--fix` prompted, confirmed, and wrote a local patch, plus the real `changedPaths`
+- `sourcePlaybook`: the quickstart-side source-specific check order, placeholder guidance, and repair defaults
+- `sourceProfile.checkOrder / sourceProfile.repairDefaults`: the source-specific validation order plus the installer's default repair strategy
+- `warnings`: mode/profile-specific caveats that still need confirmation
+- `postcheck`: recommended selfcheck execution status, blockage reason, or summary
+- `postcheck.remediation`: actionable fix hints derived from failed checks
+- `postcheck.repairArtifacts`: a minimal `configPatch` plus `.env` template you can apply directly to fix the detected setup gaps
+- `postcheck.repairPlan`: itemized repair changes, env updates, and file writes
+- `migration.configPatch / migration.envTemplate`: suggested normalized layout for the current legacy config
+
+If you also pass `--repair-dir <path>`, quickstart will materialize those artifacts as:
+
+- `wecom.config-patch.json`
+- `wecom.account-patch.json`
+- `wecom.env.template`
+- `README.txt`
+
+If you pass `--apply-repair`, the report will also include `repairApply` so you can see whether the repair patch was actually merged into the target config.
+If you pass `--confirm-repair`, `repairApply` also includes `prompted/confirmed` so you can tell whether the patch was declined or auto-applied; actual writes are listed in `repairApply.changedPaths`.
 
 Use OpenClaw core `bindings` for stable account-to-agent routing. The plugin exposes `channel=wecom` and `accountId=<id>` to the core router.
 
@@ -793,6 +942,24 @@ Set:
       "groupChat": {
         "enabled": true,
         "triggerMode": "direct"
+      }
+    }
+  }
+}
+```
+
+If you also need to limit which members can trigger the bot in a group, add a group member ACL:
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "groupAllowFrom": ["alice", "bob"],
+      "groups": {
+        "wr9N1x...": {
+          "allowFrom": ["ops_lead"],
+          "rejectMessage": "Only the on-duty team can trigger this bot in the group."
+        }
       }
     }
   }

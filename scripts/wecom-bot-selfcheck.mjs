@@ -4,6 +4,8 @@ import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { resolveWecomGroupChatConfig } from "../src/core.js";
+import { normalizeWecomBotGroupChatPolicy } from "../src/wecom/bot-inbound-executor-helpers.js";
 import { PLUGIN_VERSION } from "../src/wecom/plugin-constants.js";
 import { diagnoseWecomCallbackHealth } from "../src/wecom/callback-health-diagnostics.js";
 
@@ -138,6 +140,21 @@ function compareSemverLike(left, right) {
   return 0;
 }
 
+function formatGroupSourceLabel(source = "") {
+  const normalized = String(source ?? "").trim();
+  if (!normalized) return "none";
+  if (normalized === "default") return "default";
+  if (normalized === "inferred") return "inferred";
+  if (normalized.startsWith("env.")) return "env";
+  if (normalized.startsWith("account.group")) return "account-group";
+  if (normalized.startsWith("account.groupChat")) return "account-group-default";
+  if (normalized.startsWith("account.root")) return "account-root";
+  if (normalized.startsWith("channel.group")) return "channel-group";
+  if (normalized.startsWith("channel.groupChat")) return "channel-group-default";
+  if (normalized.startsWith("channel.root")) return "channel-root";
+  return normalized;
+}
+
 function parseBooleanLike(value, fallback = false) {
   if (typeof value === "boolean") return value;
   const normalized = String(value ?? "")
@@ -248,6 +265,20 @@ function buildBotOverview({ config = {}, botConfig = {} } = {}) {
   const bindingsCount = Array.isArray(config?.bindings) ? config.bindings.length : 0;
   const dynamicAgentEnabled =
     config?.channels?.wecom?.dynamicAgent?.enabled === true || config?.channels?.wecom?.dynamicAgents?.enabled === true;
+  const deliveryConfig = config?.channels?.wecom?.delivery ?? {};
+  const pendingReplyConfig = deliveryConfig?.pendingReply ?? {};
+  const reasoningConfig = deliveryConfig?.reasoning ?? {};
+  const pendingReplyEnabled = pendingReplyConfig?.enabled !== false;
+  const pendingReplyPersist = pendingReplyEnabled && pendingReplyConfig?.persist !== false;
+  const pendingReplyStoreFile = pickFirstNonEmptyString(pendingReplyConfig?.storeFile) || null;
+  const quotaTrackingEnabled = deliveryConfig?.quotaTracking?.enabled !== false;
+  const reasoningMode = (() => {
+    const explicit = pickFirstNonEmptyString(reasoningConfig?.mode).toLowerCase();
+    if (explicit === "append" || explicit === "hidden" || explicit === "separate") return explicit;
+    if (reasoningConfig?.includeInFinalAnswer === true) return "append";
+    if (reasoningConfig?.sendThinkingMessage === false) return "hidden";
+    return "separate";
+  })();
   const longConnectionEnabled =
     botConfig?.enabled === true &&
     botConfig?.longConnection?.enabled === true &&
@@ -259,6 +290,23 @@ function buildBotOverview({ config = {}, botConfig = {} } = {}) {
     Boolean(String(botConfig?.encodingAesKey ?? "").trim()) &&
     Boolean(String(botConfig?.webhookPath ?? "").trim());
   const canReceive = longConnectionEnabled || webhookEnabled;
+  const channel = config?.channels?.wecom ?? {};
+  const accountBlock =
+    botConfig?.accountId === "default"
+      ? channel
+      : channel?.accounts && typeof channel.accounts === "object"
+        ? channel.accounts[botConfig.accountId] ?? {}
+        : {};
+  const normalizedGroupPolicy = normalizeWecomBotGroupChatPolicy(
+    resolveWecomGroupChatConfig({
+      channelConfig: channel,
+      accountConfig: accountBlock,
+      envVars: config?.env?.vars ?? {},
+      processEnv: process.env,
+      accountId: botConfig?.accountId || "default",
+    }),
+  );
+  const allowFrom = Array.isArray(normalizedGroupPolicy?.allowFrom) ? normalizedGroupPolicy.allowFrom : [];
   return {
     canReceive,
     canReply: canReceive,
@@ -267,6 +315,25 @@ function buildBotOverview({ config = {}, botConfig = {} } = {}) {
     webhookEnabled,
     bindingsCount,
     dynamicAgentEnabled,
+    pendingReplyEnabled,
+    pendingReplyPersist,
+    pendingReplyStoreFile,
+    quotaTrackingEnabled,
+    reasoningMode,
+    reasoningTitle: pickFirstNonEmptyString(reasoningConfig?.title, "思考过程"),
+    reasoningMaxChars: Math.max(64, asNumber(reasoningConfig?.maxChars, 1200) || 1200),
+    groupPolicy: {
+      mode: String(normalizedGroupPolicy?.policyMode ?? "open"),
+      trigger: String(normalizedGroupPolicy?.triggerMode ?? "mention"),
+      allowSummary:
+        normalizedGroupPolicy?.policyMode === "allowlist"
+          ? String(allowFrom.length)
+          : allowFrom.length > 0 && !allowFrom.includes("*")
+            ? `${allowFrom.length}(inactive)`
+            : "open",
+      groups: Number(normalizedGroupPolicy?.configuredGroupCount || 0),
+      source: formatGroupSourceLabel(normalizedGroupPolicy?.policySource),
+    },
   };
 }
 
@@ -380,10 +447,6 @@ function resolveBotConfig(config) {
       process.env[`WECOM_BOT_${suffix}`],
     );
   };
-  const enabled = parseBooleanLike(
-    bot.enabled,
-    parseBooleanLike(readBotEnv("ENABLED"), false),
-  );
   const token = pickFirstNonEmptyString(bot.token, bot.callbackToken, readBotEnv("TOKEN"));
   const encodingAesKey = pickFirstNonEmptyString(bot.encodingAesKey, bot.callbackAesKey, readBotEnv("ENCODING_AES_KEY"));
   const webhookPath = normalizeWebhookPath(
@@ -395,6 +458,15 @@ function resolveBotConfig(config) {
     bot?.longConnection && typeof bot.longConnection === "object"
       ? bot.longConnection
       : {};
+  const compatBotId = pickFirstNonEmptyString(accountBlock?.botId, accountBlock?.botid, channel?.botId, channel?.botid);
+  const compatSecret = pickFirstNonEmptyString(accountBlock?.secret, channel?.secret);
+  const compatLongConnectionEnabled =
+    Boolean(pickFirstNonEmptyString(longConnection?.botId, longConnection?.botid, compatBotId)) &&
+    Boolean(pickFirstNonEmptyString(longConnection?.secret, compatSecret));
+  const enabled = parseBooleanLike(
+    bot.enabled,
+    parseBooleanLike(readBotEnv("ENABLED"), compatLongConnectionEnabled),
+  );
   return {
     accountId,
     enabled,
@@ -402,7 +474,15 @@ function resolveBotConfig(config) {
     encodingAesKey,
     webhookPath,
     gatewayPort: Math.max(1, gatewayPort || 8885),
-    longConnection,
+    longConnection: {
+      ...longConnection,
+      enabled:
+        longConnection?.enabled === true ||
+        (Boolean(pickFirstNonEmptyString(longConnection?.botId, longConnection?.botid, compatBotId)) &&
+          Boolean(pickFirstNonEmptyString(longConnection?.secret, compatSecret))),
+      botId: pickFirstNonEmptyString(longConnection?.botId, longConnection?.botid, compatBotId),
+      secret: pickFirstNonEmptyString(longConnection?.secret, compatSecret),
+    },
   };
 }
 
@@ -538,6 +618,13 @@ function reportAndExit(report, asJson = false) {
     console.log(
       `- routing: bindings=${overview.bindingsCount} dynamicAgent=${overview.dynamicAgentEnabled ? "on" : "off"}`,
     );
+    console.log(
+      `- reliable-delivery: pendingReply=${overview.pendingReplyEnabled ? "on" : "off"} persist=${overview.pendingReplyPersist ? "on" : "off"} quotaTracking=${overview.quotaTrackingEnabled ? "on" : "off"} store=${overview.pendingReplyPersist ? overview.pendingReplyStoreFile || "(auto)" : "(disabled)"}`,
+    );
+    console.log(
+      `- group-policy: mode=${overview.groupPolicy.mode} trigger=${overview.groupPolicy.trigger} allowFrom=${overview.groupPolicy.allowSummary} groups=${overview.groupPolicy.groups} source=${overview.groupPolicy.source}`,
+    );
+    console.log(`- reasoning: mode=${overview.reasoningMode} title=${overview.reasoningTitle} maxChars=${overview.reasoningMaxChars}`);
     for (const check of accountReport.checks) {
       console.log(`${check.ok ? "OK " : "FAIL"} ${check.name} :: ${check.detail}`);
     }
@@ -799,6 +886,7 @@ async function runBotE2E({ config, args, configPath, accountId }) {
     fromUser,
     content,
     config: botConfig,
+    overview: buildBotOverview({ config, botConfig }),
     checks,
     summary: summarize(checks),
   };

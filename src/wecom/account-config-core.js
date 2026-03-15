@@ -1,4 +1,5 @@
 import { buildDefaultAgentWebhookPath } from "./account-paths.js";
+import { resolveWecomApiBaseUrl } from "./network-config.js";
 
 export function asNumber(v, fallback = null) {
   if (v == null) return fallback;
@@ -31,6 +32,7 @@ export function normalizeAccountConfig({ raw, accountId, normalizeWecomWebhookTa
   const normalizedId = normalizeAccountId(accountId);
   if (!raw || typeof raw !== "object") return null;
   if (typeof normalizeWecomWebhookTargetMap !== "function") return null;
+  const networkConfig = raw.network && typeof raw.network === "object" ? raw.network : {};
 
   const legacyAgent = raw.agent && typeof raw.agent === "object" ? raw.agent : {};
   const hasLegacyAgentBlock = Object.keys(legacyAgent).length > 0;
@@ -53,7 +55,19 @@ export function normalizeAccountConfig({ raw, accountId, normalizeWecomWebhookTa
   const defaultWebhookPath = buildDefaultAgentWebhookPath(normalizedId);
   const webhookPath = String(raw.webhookPath ?? legacyAgent.webhookPath ?? defaultWebhookPath).trim() || defaultWebhookPath;
   const name = pickFirstNonEmptyString(raw.name, normalizedId);
-  const outboundProxy = String(raw.outboundProxy ?? raw.proxyUrl ?? raw.proxy ?? "").trim();
+  const outboundProxy = String(
+    raw.outboundProxy ??
+      raw.proxyUrl ??
+      raw.proxy ??
+      networkConfig.egressProxyUrl ??
+      networkConfig.proxyUrl ??
+      networkConfig.proxy ??
+      "",
+  ).trim();
+  const apiBaseUrl = resolveWecomApiBaseUrl({
+    accountConfig: raw,
+    accountId: normalizedId,
+  });
   const webhooks = normalizeWecomWebhookTargetMap(raw.webhooks);
   const allowFrom = raw.allowFrom ?? raw.dm?.allowFrom;
   const allowFromRejectMessage = String(raw.allowFromRejectMessage ?? raw.rejectUnauthorizedMessage ?? "").trim();
@@ -74,6 +88,7 @@ export function normalizeAccountConfig({ raw, accountId, normalizeWecomWebhookTa
     webhookPath,
     name,
     outboundProxy: outboundProxy || undefined,
+    apiBaseUrl: apiBaseUrl || undefined,
     webhooks: Object.keys(webhooks).length > 0 ? webhooks : undefined,
     allowFrom,
     allowFromRejectMessage: allowFromRejectMessage || undefined,
@@ -108,11 +123,21 @@ export function readAccountConfigFromEnv({
   const defaultWebhookPath = buildDefaultAgentWebhookPath(normalizedId);
   const webhookPath = String(readVar("WEBHOOK_PATH") ?? defaultWebhookPath).trim() || defaultWebhookPath;
   const outboundProxyRaw =
+    readVar("EGRESS_PROXY_URL") ??
     readVar("PROXY") ??
     (normalizedId === "default"
       ? requireEnv("HTTPS_PROXY")
       : envVars?.WECOM_PROXY ?? requireEnv("WECOM_PROXY") ?? requireEnv("HTTPS_PROXY"));
   const outboundProxy = String(outboundProxyRaw ?? "").trim();
+  const apiBaseUrl = resolveWecomApiBaseUrl({
+    envVars: {
+      ...envVars,
+      [`${prefix}_API_BASE_URL`]: readVar("API_BASE_URL"),
+      ...(normalizedId === "default" ? { WECOM_API_BASE_URL: readVar("API_BASE_URL") } : {}),
+    },
+    processEnv: {},
+    accountId: normalizedId,
+  });
   const webhooks = normalizeWecomWebhookTargetMap(readVar("WEBHOOK_TARGETS"), readVar("WEBHOOKS"));
   const allowFrom = readVar("ALLOW_FROM");
   const allowFromRejectMessage = String(readVar("ALLOW_FROM_REJECT_MESSAGE") ?? "").trim();
@@ -130,6 +155,7 @@ export function readAccountConfigFromEnv({
     callbackAesKey,
     webhookPath,
     outboundProxy: outboundProxy || undefined,
+    apiBaseUrl: apiBaseUrl || undefined,
     webhooks: Object.keys(webhooks).length > 0 ? webhooks : undefined,
     allowFrom,
     allowFromRejectMessage: allowFromRejectMessage || undefined,

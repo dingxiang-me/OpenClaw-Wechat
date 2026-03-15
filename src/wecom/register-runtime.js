@@ -10,6 +10,7 @@ export function createWecomRegisterRuntime({
   resolveWecomBotConfig,
   resolveWecomBotConfigs,
   syncWecomBotLongConnections,
+  initializeWecomReliableDeliveryPersistence,
   listEnabledWecomAccounts,
   getWecomConfig,
   wecomChannelPlugin,
@@ -43,6 +44,12 @@ export function createWecomRegisterRuntime({
   if (syncWecomBotLongConnections != null && typeof syncWecomBotLongConnections !== "function") {
     throw new Error("createWecomRegisterRuntime: syncWecomBotLongConnections must be a function");
   }
+  if (
+    initializeWecomReliableDeliveryPersistence != null &&
+    typeof initializeWecomReliableDeliveryPersistence !== "function"
+  ) {
+    throw new Error("createWecomRegisterRuntime: initializeWecomReliableDeliveryPersistence must be a function");
+  }
   if (listEnabledWecomAccounts != null && typeof listEnabledWecomAccounts !== "function") {
     throw new Error("createWecomRegisterRuntime: listEnabledWecomAccounts must be a function");
   }
@@ -61,6 +68,9 @@ export function createWecomRegisterRuntime({
 
   function register(api) {
     setGatewayRuntime(api.runtime);
+    void initializeWecomReliableDeliveryPersistence?.(api).catch((err) => {
+      api.logger.warn?.(`wecom: failed to initialize reliable delivery persistence: ${String(err?.message || err)}`);
+    });
     const streamManagerPolicy = syncWecomSessionQueuePolicy(api);
     const fallbackPolicy = resolveWecomDeliveryFallbackPolicy(api);
     const webhookBotPolicy = resolveWecomWebhookBotDeliveryPolicy(api);

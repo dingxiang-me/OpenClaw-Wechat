@@ -29,6 +29,7 @@ export async function executeWecomAgentDispatchFlow({
   corpSecret,
   agentId,
   proxyUrl = "",
+  apiBaseUrl = "",
   tempPathsToCleanup = [],
   resolveWecomReplyStreamingPolicy,
   asNumber,
@@ -37,6 +38,7 @@ export async function executeWecomAgentDispatchFlow({
   markdownToWecomText,
   autoSendWorkspaceFilesFromReplyText,
   sendWecomOutboundMediaBatch,
+  resolveWecomReasoningPolicy,
   withTimeout,
   isDispatchTimeoutError,
   isAgentFailureText,
@@ -44,6 +46,7 @@ export async function executeWecomAgentDispatchFlow({
   ensureLateReplyWatcherRunner,
   ACTIVE_LATE_REPLY_WATCHERS,
   sendTextToUser,
+  deliverAgentReply,
   clearSessionStoreEntry,
 } = {}) {
   assertFunction("resolveWecomReplyStreamingPolicy", resolveWecomReplyStreamingPolicy);
@@ -92,9 +95,12 @@ export async function executeWecomAgentDispatchFlow({
     lateReplyWatchMs,
     lateReplyPollMs,
     sendTextToUser,
+    deliverAgentReply,
     ensureLateReplyWatcherRunner,
     activeWatchers: ACTIVE_LATE_REPLY_WATCHERS,
     clearSessionStoreEntry,
+    api,
+    fromUser,
     logger: api?.logger,
   });
   const sendProgressNotice = lateReplyRuntime.sendProgressNotice;
@@ -115,21 +121,26 @@ export async function executeWecomAgentDispatchFlow({
       api,
       state: dispatchState,
       streamingEnabled,
+      sessionId,
+      runtimeAccountId,
       fromUser,
       routedAgentId,
       corpId,
       corpSecret,
       agentId,
       proxyUrl,
+      apiBaseUrl,
       flushStreamingBuffer,
       sendFailureFallback,
       sendTextToUser,
+      deliverAgentReply,
       markdownToWecomText,
       isAgentFailureText,
       computeStreamingTailText,
       autoSendWorkspaceFilesFromReplyText,
       buildWorkspaceAutoSendHints,
       sendWecomOutboundMediaBatch,
+      reasoningPolicy: resolveWecomReasoningPolicy?.(api) ?? {},
     });
     const dispatchResult = await withTimeout(
       runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({

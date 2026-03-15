@@ -1,3 +1,5 @@
+import { buildWecomApiUrl } from "./network-config.js";
+
 export function createWecomApiMediaClient({
   fetchWithRetry,
   getWecomAccessToken,
@@ -9,9 +11,12 @@ export function createWecomApiMediaClient({
     throw new Error("createWecomApiMediaClient: getWecomAccessToken is required");
   }
 
-  async function uploadWecomMedia({ corpId, corpSecret, type, buffer, filename, logger, proxyUrl }) {
-    const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger });
-    const uploadUrl = `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${encodeURIComponent(accessToken)}&type=${encodeURIComponent(type)}`;
+  async function uploadWecomMedia({ corpId, corpSecret, type, buffer, filename, logger, proxyUrl, apiBaseUrl }) {
+    const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger, apiBaseUrl });
+    const uploadUrl = buildWecomApiUrl(
+      `/cgi-bin/media/upload?access_token=${encodeURIComponent(accessToken)}&type=${encodeURIComponent(type)}`,
+      { apiBaseUrl },
+    );
 
     const boundary = `----WecomMediaUpload${Date.now()}`;
     const header = Buffer.from(
@@ -30,6 +35,7 @@ export function createWecomApiMediaClient({
           "Content-Type": `multipart/form-data; boundary=${boundary}`,
         },
         body,
+        apiBaseUrl,
       },
       3,
       1000,
@@ -43,11 +49,14 @@ export function createWecomApiMediaClient({
     return json.media_id;
   }
 
-  async function downloadWecomMedia({ corpId, corpSecret, mediaId, proxyUrl, logger }) {
-    const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger });
-    const mediaUrl = `https://qyapi.weixin.qq.com/cgi-bin/media/get?access_token=${encodeURIComponent(accessToken)}&media_id=${encodeURIComponent(mediaId)}`;
+  async function downloadWecomMedia({ corpId, corpSecret, mediaId, proxyUrl, logger, apiBaseUrl }) {
+    const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger, apiBaseUrl });
+    const mediaUrl = buildWecomApiUrl(
+      `/cgi-bin/media/get?access_token=${encodeURIComponent(accessToken)}&media_id=${encodeURIComponent(mediaId)}`,
+      { apiBaseUrl },
+    );
 
-    const res = await fetchWithRetry(mediaUrl, {}, 3, 1000, { proxyUrl, logger });
+    const res = await fetchWithRetry(mediaUrl, { apiBaseUrl }, 3, 1000, { proxyUrl, logger });
     if (!res.ok) {
       throw new Error(`Failed to download media: ${res.status}`);
     }

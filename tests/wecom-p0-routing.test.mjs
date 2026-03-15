@@ -63,7 +63,9 @@ test("delivery router uses active_stream only when fallback disabled", async () 
   assert.equal(result.layer, "active_stream");
   assert.equal(result.deliveryPath, "active_stream");
   assert.equal(result.finalStatus, "ok");
+  assert.equal(result.deliveryStatus, "delivered");
   assert.equal(result.attempts[0].status, "ok");
+  assert.equal(result.attempts[0].deliveryStatus, "delivered");
   assert.deepEqual(hits, ["active_stream"]);
 });
 
@@ -91,9 +93,33 @@ test("delivery router falls through to next layer on rejection", async () => {
   assert.equal(result.layer, "response_url");
   assert.equal(result.deliveryPath, "response_url");
   assert.equal(result.finalStatus, "degraded");
+  assert.equal(result.deliveryStatus, "delivered");
   assert.equal(result.attempts[0].status, "miss");
+  assert.equal(result.attempts[0].deliveryStatus, "rejected_target");
   assert.equal(result.attempts[1].status, "ok");
   assert.deepEqual(hits, ["active_stream", "response_url"]);
+});
+
+test("delivery router classifies failures across layers", async () => {
+  const router = createWecomDeliveryRouter({
+    fallbackConfig: {
+      enabled: true,
+      order: ["active_stream", "agent_push"],
+    },
+    handlers: {
+      active_stream: async () => ({ ok: false, reason: "stream-missing" }),
+      agent_push: async () => {
+        throw new Error("fetch failed");
+      },
+    },
+    observability: { enabled: false },
+  });
+  const result = await router.deliverText({ text: "world", traceId: "trace-3" });
+  assert.equal(result.ok, false);
+  assert.equal(result.finalStatus, "failed");
+  assert.equal(result.deliveryStatus, "rejected_transport");
+  assert.equal(result.attempts[0].deliveryStatus, "rejected_target");
+  assert.equal(result.attempts[1].deliveryStatus, "rejected_transport");
 });
 
 test("parseWecomResponseUrlResult parses accepted responses", () => {

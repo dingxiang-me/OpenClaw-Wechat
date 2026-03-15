@@ -22,6 +22,7 @@ test("createWecomPluginDeliveryInboundServices returns queue/delivery/inbound bu
     setBotStreamExpireMs: base.setBotStreamExpireMs,
     attachWecomProxyDispatcher: base.attachWecomProxyDispatcher,
     resolveWecomDeliveryFallbackPolicy: accountPolicy.resolveWecomDeliveryFallbackPolicy,
+    resolveWecomReasoningPolicy: accountPolicy.resolveWecomReasoningPolicy,
     resolveWecomWebhookBotDeliveryPolicy: accountPolicy.resolveWecomWebhookBotDeliveryPolicy,
     resolveWecomObservabilityPolicy: accountPolicy.resolveWecomObservabilityPolicy,
     resolveWecomBotProxyConfig: accountPolicy.resolveWecomBotProxyConfig,
@@ -39,6 +40,9 @@ test("createWecomPluginDeliveryInboundServices returns queue/delivery/inbound bu
     sendWecomText: base.sendWecomText,
     fetchMediaFromUrl: base.fetchMediaFromUrl,
     recordDeliveryMetric: base.recordDeliveryMetric,
+    recordReliableDeliveryOutcome: base.recordReliableDeliveryOutcome,
+    enqueuePendingReply: () => null,
+    sendWecomOutboundMediaBatch: base.sendWecomOutboundMediaBatch,
     downloadWecomMedia: base.downloadWecomMedia,
     resolveWecomVoiceTranscriptionConfig: accountPolicy.resolveWecomVoiceTranscriptionConfig,
     transcribeInboundVoice: accountPolicy.transcribeInboundVoice,
@@ -48,5 +52,6 @@ test("createWecomPluginDeliveryInboundServices returns queue/delivery/inbound bu
   assert.equal(typeof services.syncWecomSessionQueuePolicy, "function");
   assert.equal(typeof services.executeInboundTaskWithSessionQueue, "function");
   assert.equal(typeof services.deliverBotReplyText, "function");
+  assert.equal(typeof services.deliverAgentReply, "function");
   assert.equal(typeof services.buildInboundContent, "function");
 });

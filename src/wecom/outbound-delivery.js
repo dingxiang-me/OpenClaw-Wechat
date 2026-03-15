@@ -18,6 +18,14 @@ import {
   webhookSendText,
 } from "./webhook-bot.js";
 import { stat } from "node:fs/promises";
+import { inferWecomDeliveryStatus } from "./reliable-delivery.js";
+import { applyWecomReasoningPolicy } from "./reasoning-visibility.js";
+import {
+  extractWecomReplyDirectives,
+  mergeWecomReplyMediaItems,
+  resolveWecomReplyDirectiveMediaItems,
+} from "./reply-output-policy.js";
+import { parseThinkingContent } from "./thinking-parser.js";
 
 function assertFunction(name, fn) {
   if (typeof fn !== "function") {
@@ -30,6 +38,16 @@ export function createWecomBotReplyDeliverer({
   resolveWecomDeliveryFallbackPolicy,
   resolveWecomWebhookBotDeliveryPolicy,
   resolveWecomObservabilityPolicy,
+  resolveWecomReasoningPolicy = () => ({
+    mode: "separate",
+    sendThinkingMessage: true,
+    includeInFinalAnswer: false,
+    title: "思考过程",
+    maxChars: 1200,
+  }),
+  resolveWecomReplyFormatPolicy = () => ({
+    mode: "auto",
+  }),
   resolveWecomBotProxyConfig,
   resolveWecomBotConfig,
   resolveWecomBotLongConnectionReplyContext,
@@ -53,6 +71,8 @@ export function createWecomBotReplyDeliverer({
   extractWorkspacePathsFromText = () => [],
   resolveWorkspacePathToHost = () => "",
   recordDeliveryMetric = () => {},
+  recordReliableDeliveryOutcome = () => {},
+  enqueuePendingReply = () => null,
   statImpl = stat,
   fetchImpl = fetch,
 } = {}) {
@@ -60,6 +80,8 @@ export function createWecomBotReplyDeliverer({
   assertFunction("resolveWecomDeliveryFallbackPolicy", resolveWecomDeliveryFallbackPolicy);
   assertFunction("resolveWecomWebhookBotDeliveryPolicy", resolveWecomWebhookBotDeliveryPolicy);
   assertFunction("resolveWecomObservabilityPolicy", resolveWecomObservabilityPolicy);
+  assertFunction("resolveWecomReasoningPolicy", resolveWecomReasoningPolicy);
+  assertFunction("resolveWecomReplyFormatPolicy", resolveWecomReplyFormatPolicy);
   assertFunction("resolveWecomBotProxyConfig", resolveWecomBotProxyConfig);
   assertFunction("resolveWecomBotConfig", resolveWecomBotConfig);
   assertFunction("resolveWecomBotLongConnectionReplyContext", resolveWecomBotLongConnectionReplyContext);
@@ -83,6 +105,8 @@ export function createWecomBotReplyDeliverer({
   assertFunction("extractWorkspacePathsFromText", extractWorkspacePathsFromText);
   assertFunction("resolveWorkspacePathToHost", resolveWorkspacePathToHost);
   assertFunction("recordDeliveryMetric", recordDeliveryMetric);
+  assertFunction("recordReliableDeliveryOutcome", recordReliableDeliveryOutcome);
+  assertFunction("enqueuePendingReply", enqueuePendingReply);
   assertFunction("statImpl", statImpl);
 
   const inlineImageExts = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif"]);
@@ -167,38 +191,92 @@ export function createWecomBotReplyDeliverer({
     streamId,
     responseUrl,
     text,
+    rawText = "",
     thinkingContent = "",
+    rawThinkingContent = "",
     routeAgentId = "",
     mediaUrl,
     mediaUrls,
+    mediaItems,
     mediaType,
     reason = "reply",
+    allowPendingEnqueue = true,
   } = {}) {
     const normalizedAccountId = String(accountId ?? "default").trim().toLowerCase() || "default";
     const fallbackPolicy = resolveWecomDeliveryFallbackPolicy(api);
     const webhookBotPolicy = resolveWecomWebhookBotDeliveryPolicy(api);
     const observabilityPolicy = resolveWecomObservabilityPolicy(api);
+    const reasoningPolicy = resolveWecomReasoningPolicy(api);
+    const replyFormatPolicy = resolveWecomReplyFormatPolicy(api);
     const botProxyUrl = resolveWecomBotProxyConfig(api, normalizedAccountId);
     const botModeConfig = resolveWecomBotConfig(api, normalizedAccountId);
     const normalizedText = String(text ?? "").trim();
+    const normalizedRawText = String(rawText ?? normalizedText).trim();
+    const parsedText =
+      String(thinkingContent ?? "").trim().length > 0
+        ? {
+            visibleContent: normalizedText,
+            thinkingContent: String(thinkingContent ?? "").trim(),
+          }
+        : parseThinkingContent(normalizedText);
+    const parsedRawText =
+      String(rawThinkingContent ?? "").trim().length > 0
+        ? {
+            visibleContent: normalizedRawText,
+            thinkingContent: String(rawThinkingContent ?? "").trim(),
+          }
+        : parseThinkingContent(normalizedRawText);
+    const reasoningPayload = applyWecomReasoningPolicy({
+      text: parsedText.visibleContent,
+      thinkingContent: parsedText.thinkingContent,
+      policy: reasoningPolicy,
+      transport: "bot",
+      phase: "final",
+    });
+    const richReasoningPayload = applyWecomReasoningPolicy({
+      text: parsedRawText.visibleContent,
+      thinkingContent: parsedRawText.thinkingContent,
+      policy: reasoningPolicy,
+      transport: "bot",
+      phase: "final",
+    });
+    const plainDirectivePayload = extractWecomReplyDirectives(reasoningPayload.text);
+    const richDirectivePayload = extractWecomReplyDirectives(richReasoningPayload.text);
+    const effectiveText = String(plainDirectivePayload.text ?? "").trim();
+    const richEffectiveText = String(richDirectivePayload.text ?? "").trim();
+    const effectiveThinkingContent = String(reasoningPayload.thinkingContent ?? "").trim();
+    const directiveMediaItems = resolveWecomReplyDirectiveMediaItems({
+      mediaItems: richDirectivePayload.mediaItems,
+      routeAgentId,
+      resolveWorkspacePathToHost,
+    });
     const inlineWorkspaceMediaUrls = await collectInlineWorkspaceImageMediaUrls({
-      text: normalizedText,
+      text: richEffectiveText || effectiveText,
       routeAgentId,
     });
-    const normalizedMediaUrls = normalizeWecomBotOutboundMediaUrls({
+    const normalizedMediaItems = mergeWecomReplyMediaItems({
       mediaUrl,
       mediaUrls: [...(Array.isArray(mediaUrls) ? mediaUrls : []), ...inlineWorkspaceMediaUrls],
+      mediaItems,
+      mediaType,
+      extraMediaItems: directiveMediaItems,
+    });
+    const normalizedMediaUrls = normalizeWecomBotOutboundMediaUrls({
+      mediaUrls: normalizedMediaItems.map((item) => item.url),
     });
     const mixedPayload =
       normalizedMediaUrls.length > 0
         ? buildWecomBotMixedPayload({
-            text: normalizedText,
+            text: effectiveText,
             mediaUrls: normalizedMediaUrls,
           })
         : null;
-    const fallbackText = normalizedText || "已收到模型返回的媒体结果，请查看以下链接。";
+    const fallbackText = effectiveText || "已收到模型返回的媒体结果，请查看以下链接。";
     const cardPayload = buildWecomBotCardPayload({
-      text: normalizedText || fallbackText,
+      text:
+        String(replyFormatPolicy?.mode ?? "").trim().toLowerCase() === "markdown" && richEffectiveText
+          ? richEffectiveText
+          : effectiveText || fallbackText,
       cardPolicy: botModeConfig?.card,
       hasMedia: normalizedMediaUrls.length > 0,
     });
@@ -231,6 +309,7 @@ export function createWecomBotReplyDeliverer({
           if (normalizedMediaUrls.length > 0) {
             const processed = await buildActiveStreamMsgItems({
               mediaUrls: normalizedMediaUrls,
+              mediaItems: normalizedMediaItems,
               mediaType,
               fetchMediaFromUrl,
               proxyUrl: botProxyUrl,
@@ -246,7 +325,7 @@ export function createWecomBotReplyDeliverer({
           if (fallbackMediaUrls.length > 0) {
             streamContent = `${streamContent}\n\n媒体链接：\n${fallbackMediaUrls.join("\n")}`.trim();
           }
-          if (!streamContent && !streamMsgItem.length && !String(thinkingContent ?? "").trim()) {
+          if (!streamContent && !streamMsgItem.length && !effectiveThinkingContent) {
             streamContent = fallbackText;
           }
           return pushWecomBotLongConnectionStreamUpdate({
@@ -256,7 +335,7 @@ export function createWecomBotReplyDeliverer({
             content: streamContent,
             finish: true,
             msgItem: streamMsgItem,
-            thinkingContent,
+            thinkingContent: effectiveThinkingContent,
           });
         },
         active_stream: async ({ text: content }) => {
@@ -264,10 +343,10 @@ export function createWecomBotReplyDeliverer({
             streamId,
             sessionId: normalizedSessionId,
             content,
-            thinkingContent,
+            thinkingContent: effectiveThinkingContent,
             normalizedMediaUrls,
             mediaType,
-            normalizedText,
+            normalizedText: effectiveText,
             fallbackText,
             botProxyUrl,
             logger: api.logger,
@@ -296,9 +375,13 @@ export function createWecomBotReplyDeliverer({
             webhookBotPolicy,
             botProxyUrl,
             content,
+            richContent:
+              String(replyFormatPolicy?.mode ?? "").trim().toLowerCase() === "markdown" ? richEffectiveText : "",
+            replyFormatMode: replyFormatPolicy?.mode || "auto",
             fallbackText,
-            normalizedText,
+            normalizedText: effectiveText,
             normalizedMediaUrls,
+            normalizedMediaItems,
             mediaType,
             cardPayload,
             cardPolicy: botModeConfig?.card ?? {},
@@ -318,7 +401,7 @@ export function createWecomBotReplyDeliverer({
     });
 
     const deliveryResult = await router.deliverText({
-      text: normalizedText || fallbackText,
+      text: effectiveText || fallbackText,
       traceId,
       meta: {
         reason,
@@ -328,7 +411,7 @@ export function createWecomBotReplyDeliverer({
         streamId: streamId || "",
         hasResponseUrl: Boolean(inlineResponseUrl || cachedResponseUrl?.url),
         mediaCount: normalizedMediaUrls.length,
-        hasThinkingContent: Boolean(String(thinkingContent ?? "").trim()),
+        hasThinkingContent: Boolean(effectiveThinkingContent),
         botCardMode: botModeConfig?.card?.enabled ? botModeConfig.card.mode : "off",
       },
     });
@@ -336,9 +419,43 @@ export function createWecomBotReplyDeliverer({
       layer: deliveryResult?.layer || "",
       ok: deliveryResult?.ok === true,
       finalStatus: deliveryResult?.finalStatus || "",
+      deliveryStatus: deliveryResult?.deliveryStatus || "",
       accountId: normalizedAccountId,
       attempts: deliveryResult?.attempts,
     });
+    recordReliableDeliveryOutcome({
+      mode: "bot",
+      accountId: normalizedAccountId,
+      sessionId: normalizedSessionId,
+      fromUser,
+      deliveryStatus:
+        deliveryResult?.deliveryStatus ||
+        (deliveryResult?.ok === true
+          ? "delivered"
+          : inferWecomDeliveryStatus({
+              reason: deliveryResult?.error || deliveryResult?.attempts?.slice?.(-1)?.[0]?.reason || "delivery-failed",
+              layer: deliveryResult?.layer || deliveryResult?.attempts?.slice?.(-1)?.[0]?.layer || "",
+            })),
+      layer: deliveryResult?.layer || deliveryResult?.attempts?.slice?.(-1)?.[0]?.layer || "",
+      reason: deliveryResult?.error || deliveryResult?.attempts?.slice?.(-1)?.[0]?.reason || reason,
+    });
+    if (deliveryResult?.ok !== true && allowPendingEnqueue) {
+      enqueuePendingReply(api, {
+        mode: "bot",
+        accountId: normalizedAccountId,
+          sessionId: normalizedSessionId,
+          fromUser,
+          payload: {
+            text: effectiveText || fallbackText,
+            thinkingContent: effectiveThinkingContent,
+            mediaUrls: normalizedMediaUrls,
+            mediaItems: normalizedMediaItems,
+            mediaType,
+          },
+        reason: deliveryResult?.error || deliveryResult?.attempts?.slice?.(-1)?.[0]?.reason || reason,
+        deliveryStatus: deliveryResult?.deliveryStatus || "rejected_unknown",
+      });
+    }
     return deliveryResult;
   }
 

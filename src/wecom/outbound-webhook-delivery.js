@@ -26,9 +26,12 @@ export function createWecomWebhookBotDeliverer({
     webhookBotPolicy,
     botProxyUrl = "",
     content = "",
+    richContent = "",
+    replyFormatMode = "auto",
     fallbackText = "",
     normalizedText = "",
     normalizedMediaUrls = [],
+    normalizedMediaItems = [],
     mediaType,
     cardPayload = null,
     cardPolicy = {},
@@ -46,6 +49,7 @@ export function createWecomWebhookBotDeliverer({
 
     const dispatcher = attachWecomProxyDispatcher(sendUrl, {}, { proxyUrl: botProxyUrl, logger: api?.logger })?.dispatcher;
     const textPayload = `${content || fallbackText}`.trim();
+    const markdownPayload = String(richContent || content || fallbackText).trim();
     let sentAny = false;
     let usedCardMode = "";
 
@@ -82,6 +86,20 @@ export function createWecomWebhookBotDeliverer({
       }
     }
 
+    const preferMarkdown = String(replyFormatMode ?? "").trim().toLowerCase() === "markdown";
+    if (!sentAny && preferMarkdown && markdownPayload && normalizedMediaUrls.length === 0) {
+      await webhookSendMarkdown({
+        url: webhookBotPolicy?.url,
+        key: webhookBotPolicy?.key,
+        content: markdownPayload,
+        timeoutMs: webhookBotPolicy?.timeoutMs,
+        dispatcher,
+        fetchImpl,
+      });
+      sentAny = true;
+      usedCardMode = "markdown";
+    }
+
     if (!sentAny && textPayload && (normalizedText || normalizedMediaUrls.length === 0)) {
       await webhookSendText({
         url: webhookBotPolicy?.url,
@@ -101,6 +119,7 @@ export function createWecomWebhookBotDeliverer({
         webhookBotPolicy,
         proxyUrl: botProxyUrl,
         mediaUrls: normalizedMediaUrls,
+        mediaItems: normalizedMediaItems,
         mediaType,
       });
       sentAny = sentAny || mediaMeta.sentCount > 0;

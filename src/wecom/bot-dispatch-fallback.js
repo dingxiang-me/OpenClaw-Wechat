@@ -1,4 +1,5 @@
 import { parseThinkingContent } from "./thinking-parser.js";
+import { applyWecomReasoningPolicy } from "./reasoning-visibility.js";
 
 function assertFunction(name, value) {
   if (typeof value !== "function") {
@@ -6,13 +7,24 @@ function assertFunction(name, value) {
   }
 }
 
-export function buildWecomBotVisibleFallbackPayload(rawText = "", markdownToWecomText = (text) => String(text ?? "")) {
+export function buildWecomBotVisibleFallbackPayload(
+  rawText = "",
+  markdownToWecomText = (text) => String(text ?? ""),
+  reasoningPolicy = {},
+) {
   const parsed = parseThinkingContent(rawText);
   const visibleContent = markdownToWecomText(parsed.visibleContent).trim();
   const thinkingContent = markdownToWecomText(parsed.thinkingContent).trim();
-  return {
+  const resolved = applyWecomReasoningPolicy({
     text: visibleContent,
     thinkingContent,
+    policy: reasoningPolicy,
+    transport: "bot",
+    phase: "final",
+  });
+  return {
+    text: resolved.text,
+    thinkingContent: resolved.thinkingContent,
   };
 }
 
@@ -25,6 +37,7 @@ export async function handleWecomBotPostDispatchFallback({
   markdownToWecomText,
   safeDeliverReply,
   startLateReplyWatcher,
+  reasoningPolicy = {},
 } = {}) {
   if (!dispatchState || typeof dispatchState !== "object") {
     throw new Error("handleWecomBotPostDispatchFallback: dispatchState is required");
@@ -41,6 +54,7 @@ export async function handleWecomBotPostDispatchFallback({
   const { text: fallback, thinkingContent } = buildWecomBotVisibleFallbackPayload(
     dispatchState.blockText,
     markdownToWecomText,
+    reasoningPolicy,
   );
   if (fallback || thinkingContent) {
     await safeDeliverReply(
@@ -81,6 +95,7 @@ export async function handleWecomBotDispatchError({
   readTranscriptFallbackResult,
   safeDeliverReply,
   markTranscriptReplyDelivered,
+  reasoningPolicy = {},
 } = {}) {
   assertFunction("isDispatchTimeoutError", isDispatchTimeoutError);
   assertFunction("startLateReplyWatcher", startLateReplyWatcher);
@@ -92,7 +107,7 @@ export async function handleWecomBotDispatchError({
 
   api?.logger?.warn?.(`wecom(bot): processing failed: ${String(err?.message || err)}`);
   if (dispatchState && typeof dispatchState === "object" && dispatchState.streamFinished !== true) {
-    const partialPayload = buildWecomBotVisibleFallbackPayload(dispatchState.blockText, markdownToWecomText);
+    const partialPayload = buildWecomBotVisibleFallbackPayload(dispatchState.blockText, markdownToWecomText, reasoningPolicy);
     if (partialPayload.text || partialPayload.thinkingContent) {
       const delivered = await safeDeliverReply(partialPayload, "timeout-partial-fallback");
       if (delivered) return true;

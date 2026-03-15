@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import test from "node:test";
+
+const rootPackageVersion = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 
 async function runBotSelfcheck(args = []) {
   const scriptPath = path.resolve(process.cwd(), "scripts/wecom-bot-selfcheck.mjs");
@@ -154,7 +158,28 @@ test("wecom-bot-selfcheck flags stale npm install metadata", async () => {
   );
   assert.ok(versionCheck);
   assert.equal(versionCheck.ok, false);
-  assert.match(versionCheck.detail, /expected>=2\.1\.0/);
+  assert.match(versionCheck.detail, new RegExp(`expected>=${rootPackageVersion.replace(/\./g, "\\.")}`));
+});
+
+test("wecom-bot-selfcheck text summary includes group policy overview", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "wecom-bot-selfcheck-"));
+  const configPath = path.join(tempDir, "openclaw.json");
+  const config = {
+    channels: {
+      wecom: {
+        groupPolicy: "allowlist",
+        groupAllowFrom: ["ops"],
+        bot: {
+          enabled: false,
+        },
+      },
+    },
+  };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+  const result = await runBotSelfcheck(["--config", configPath]);
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /group-policy: mode=allowlist trigger=mention allowFrom=1 groups=0 source=account-root/);
 });
 
 test("wecom-bot-selfcheck performs URL verify check", async (t) => {

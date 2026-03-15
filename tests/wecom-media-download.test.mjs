@@ -106,7 +106,7 @@ test("buildMediaFetchErrorMessage includes status and metadata", () => {
 
 test("extractWorkspacePathsFromText finds and dedupes workspace paths", () => {
   const paths = extractWorkspacePathsFromText(
-    "请发送 /workspace/out/report.pdf 和 MEDIA:/workspace/out/report.pdf，还有 /workspace/logs/run.txt。",
+    "请发送 /workspace/out/report.pdf 和 MEDIA:/workspace/out/report.pdf，还有 FILE:/workspace/logs/run.txt。",
   );
   assert.deepEqual(paths, ["/workspace/out/report.pdf", "/workspace/logs/run.txt"]);
 });

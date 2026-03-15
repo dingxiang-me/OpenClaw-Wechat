@@ -1,3 +1,5 @@
+import { buildWecomApiUrl } from "./network-config.js";
+
 function ensureFunction(name, value) {
   if (typeof value !== "function") {
     throw new Error(`createWecomDocClient: ${name} is required`);
@@ -150,8 +152,11 @@ export function createWecomDocClient({
       corpSecret: account.corpSecret,
       proxyUrl: account.outboundProxy,
       logger: account.logger,
+      apiBaseUrl: account.apiBaseUrl,
     });
-    const url = `https://qyapi.weixin.qq.com${path}?access_token=${encodeURIComponent(accessToken)}`;
+    const url = buildWecomApiUrl(`${path}?access_token=${encodeURIComponent(accessToken)}`, {
+      apiBaseUrl: account.apiBaseUrl,
+    });
     const res = await fetchWithRetry(
       url,
       {
@@ -160,6 +165,7 @@ export function createWecomDocClient({
           "content-type": "application/json",
         },
         body: JSON.stringify(body ?? {}),
+        apiBaseUrl: account.apiBaseUrl,
       },
       3,
       1000,

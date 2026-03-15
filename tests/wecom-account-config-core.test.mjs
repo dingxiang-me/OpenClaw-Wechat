@@ -136,6 +136,24 @@ test("normalizeAccountConfig keeps explicit account name", () => {
   assert.equal(normalized.name, "Sales Bot");
 });
 
+test("normalizeAccountConfig normalizes network compatibility fields", () => {
+  const normalized = normalizeAccountConfig({
+    raw: {
+      corpId: "ww_sales",
+      corpSecret: "sales-secret",
+      agentId: 1000018,
+      network: {
+        egressProxyUrl: "http://127.0.0.1:7890",
+        apiBaseUrl: "https://wecom.internal",
+      },
+    },
+    accountId: "sales",
+    normalizeWecomWebhookTargetMap,
+  });
+  assert.equal(normalized.outboundProxy, "http://127.0.0.1:7890");
+  assert.equal(normalized.apiBaseUrl, "https://wecom.internal");
+});
+
 test("normalizeAccountConfig supports account-level dm.allowFrom alias", () => {
   const normalized = normalizeAccountConfig({
     raw: {
@@ -183,4 +201,23 @@ test("readAccountConfigFromEnv auto-assigns non-default webhookPath when missing
     normalizeWecomWebhookTargetMap,
   });
   assert.equal(normalized.webhookPath, "/wecom/sales/callback");
+});
+
+test("readAccountConfigFromEnv supports proxy/api base env compatibility keys", () => {
+  const processEnvStub = {
+    WECOM_SALES_CORP_ID: "ww_sales",
+    WECOM_SALES_CORP_SECRET: "sales-secret",
+    WECOM_SALES_AGENT_ID: "1000010",
+    WECOM_SALES_EGRESS_PROXY_URL: "http://127.0.0.1:8080",
+    WECOM_SALES_API_BASE_URL: "https://wecom.internal",
+  };
+
+  const normalized = readAccountConfigFromEnv({
+    envVars: {},
+    accountId: "sales",
+    requireEnv: (name) => processEnvStub[name],
+    normalizeWecomWebhookTargetMap,
+  });
+  assert.equal(normalized.outboundProxy, "http://127.0.0.1:8080");
+  assert.equal(normalized.apiBaseUrl, "https://wecom.internal");
 });

@@ -63,10 +63,53 @@ jobs:
       - name: Run test
         run: npm test
 
+  onboarding-e2e:
+    name: Onboarding E2E
+    runs-on: ubuntu-latest
+    needs: unit-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run local onboarding e2e
+        run: npm run test:e2e:local
+
+  release-check:
+    name: Release Check
+    runs-on: ubuntu-latest
+    needs: unit-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run release consistency check
+        run: npm run test:release
+
   remote-e2e:
     name: Remote WeCom E2E
     runs-on: ubuntu-latest
-    needs: unit-test
+    needs:
+      - unit-test
+      - onboarding-e2e
+      - release-check
     if: github.event_name == 'workflow_dispatch' && inputs.run_remote_e2e == true
     env:
       WECOM_E2E_ENABLE: "1"

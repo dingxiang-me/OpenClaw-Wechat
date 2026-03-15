@@ -133,6 +133,15 @@ const localizedUiHints = {
     label: "长连接 Secret",
     sensitive: true,
   },
+  botId: {
+    label: "BotID（兼容）",
+    help: "兼容字段，等价于 bot.longConnection.botId。",
+  },
+  secret: {
+    label: "长连接 Secret（兼容）",
+    sensitive: true,
+    help: "兼容字段，等价于 bot.longConnection.secret。",
+  },
   "bot.longConnection.url": {
     label: "长连接地址",
     placeholder: "wss://openws.work.weixin.qq.com",
@@ -168,6 +177,13 @@ const localizedUiHints = {
     label: "账号长连接 Secret",
     sensitive: true,
   },
+  "accounts.*.botId": {
+    label: "账号 BotID（兼容）",
+  },
+  "accounts.*.secret": {
+    label: "账号长连接 Secret（兼容）",
+    sensitive: true,
+  },
   "accounts.*.bot.longConnection.url": {
     label: "账号长连接地址",
   },
@@ -180,8 +196,58 @@ const localizedUiHints = {
   "accounts.*.bot.longConnection.maxReconnectDelayMs": {
     label: "账号最大重连延迟（毫秒）",
   },
+  apiBaseUrl: {
+    label: "WeCom API Base URL",
+    help: "可选：覆盖默认 qyapi 地址。",
+  },
+  network: {
+    label: "网络兼容字段",
+  },
+  "network.egressProxyUrl": {
+    label: "出站代理（兼容）",
+  },
+  "network.apiBaseUrl": {
+    label: "API Base URL（兼容）",
+  },
+  "accounts.*.apiBaseUrl": {
+    label: "账号 API Base URL",
+  },
+  "accounts.*.network": {
+    label: "账号网络兼容字段",
+  },
+  "accounts.*.network.egressProxyUrl": {
+    label: "账号出站代理（兼容）",
+  },
+  "accounts.*.network.apiBaseUrl": {
+    label: "账号 API Base URL（兼容）",
+  },
   webhookBot: {
     label: "Webhook Bot 出站回包",
+  },
+  delivery: {
+    label: "可靠投递策略",
+  },
+  "delivery.pendingReply.persist": {
+    label: "重启后恢复 Pending Reply",
+  },
+  "delivery.pendingReply.storeFile": {
+    label: "可靠投递状态文件",
+  },
+  "delivery.reasoning": {
+    label: "推理展示策略",
+  },
+  "delivery.reasoning.mode": {
+    label: "推理展示方式",
+  },
+  "delivery.reasoning.title": {
+    label: "推理标题",
+  },
+  "delivery.reasoning.maxChars": {
+    label: "最大推理字符数",
+  },
+  "delivery.replyFormat": {
+    label: "最终回复格式",
+    help: "auto=按链路自动选择，text=强制纯文本，markdown=优先使用 markdown 能力。",
   },
   "webhookBot.enabled": {
     label: "启用 Webhook Bot 回包",
@@ -196,8 +262,74 @@ const localizedUiHints = {
   groupChat: {
     label: "群聊触发策略",
   },
+  groupPolicy: {
+    label: "群聊准入策略",
+    help: "open=开放，allowlist=仅白名单成员可触发，deny=关闭群聊处理。",
+  },
+  groupAllowFrom: {
+    label: "群聊成员白名单",
+    help: "限制哪些群成员可以触发机器人；空表示不限制。",
+  },
+  groupAllowFromRejectMessage: {
+    label: "群聊拒绝文案",
+  },
+  groups: {
+    label: "按群覆盖规则",
+    help: "可针对指定 chatId 单独配置触发方式和允许成员。",
+  },
+  "groups.*.allowFrom": {
+    label: "该群成员白名单",
+  },
+  "groups.*.policy": {
+    label: "该群准入策略",
+  },
+  "groups.*.groupPolicy": {
+    label: "该群准入策略（兼容字段）",
+  },
+  "groups.*.rejectMessage": {
+    label: "该群拒绝文案",
+  },
+  "groupChat.policy": {
+    label: "群聊准入策略",
+  },
+  "groupChat.groupPolicy": {
+    label: "群聊准入策略（兼容字段）",
+  },
   "groupChat.triggerMode": {
     label: "群聊触发模式",
+  },
+  "accounts.*.groupPolicy": {
+    label: "账号群聊准入策略",
+  },
+  "accounts.*.groupAllowFrom": {
+    label: "账号群聊成员白名单",
+  },
+  "accounts.*.groupAllowFromRejectMessage": {
+    label: "账号群聊拒绝文案",
+  },
+  "accounts.*.groupChat": {
+    label: "账号群聊触发策略",
+  },
+  "accounts.*.groupChat.policy": {
+    label: "账号群聊准入策略",
+  },
+  "accounts.*.groupChat.groupPolicy": {
+    label: "账号群聊准入策略（兼容字段）",
+  },
+  "accounts.*.groups": {
+    label: "账号按群覆盖规则",
+  },
+  "accounts.*.groups.*.allowFrom": {
+    label: "该群成员白名单",
+  },
+  "accounts.*.groups.*.policy": {
+    label: "该群准入策略",
+  },
+  "accounts.*.groups.*.groupPolicy": {
+    label: "该群准入策略（兼容字段）",
+  },
+  "accounts.*.groups.*.rejectMessage": {
+    label: "该群拒绝文案",
   },
   dynamicAgent: {
     label: "动态 Agent 路由",

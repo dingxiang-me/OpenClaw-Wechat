@@ -151,6 +151,44 @@ test("resolveWecomProxyConfig supports account-specific env fallback", () => {
   assert.equal(proxy, "http://sales-proxy:8080");
 });
 
+test("resolveWecomProxyConfig supports network compatibility aliases", () => {
+  const proxy = core.resolveWecomProxyConfig({
+    channelConfig: {
+      network: {
+        egressProxyUrl: "http://channel-egress:7890",
+      },
+    },
+    accountConfig: {
+      network: {
+        egressProxyUrl: "http://account-egress:8080",
+      },
+    },
+    envVars: {},
+    processEnv: {},
+    accountId: "default",
+  });
+  assert.equal(proxy, "http://account-egress:8080");
+});
+
+test("resolveWecomApiBaseUrl supports account and network compatibility aliases", () => {
+  const apiBaseUrl = core.resolveWecomApiBaseUrl({
+    channelConfig: {
+      network: {
+        apiBaseUrl: "https://channel.wecom.internal",
+      },
+    },
+    accountConfig: {
+      network: {
+        apiBaseUrl: "https://account.wecom.internal",
+      },
+    },
+    envVars: {},
+    processEnv: {},
+    accountId: "sales",
+  });
+  assert.equal(apiBaseUrl, "https://account.wecom.internal");
+});
+
 test("extractLeadingSlashCommand normalizes command key", () => {
   assert.equal(core.extractLeadingSlashCommand("/STATUS"), "/status");
   assert.equal(core.extractLeadingSlashCommand(" /new  test"), "/new");
@@ -452,6 +490,138 @@ test("group trigger mode supports keyword and direct", () => {
   });
   assert.equal(directCfg.triggerMode, "direct");
   assert.equal(core.shouldTriggerWecomGroupResponse("大家好", directCfg), true);
+});
+
+test("resolveWecomGroupChatConfig supports account and per-group authorization overrides", () => {
+  const groupCfg = core.resolveWecomGroupChatConfig({
+    channelConfig: {
+      groupChat: {
+        enabled: true,
+        triggerMode: "direct",
+      },
+      groupAllowFrom: ["global-user"],
+      groups: {
+        roomA: {
+          triggerMode: "keyword",
+          triggerKeywords: ["global-keyword"],
+          allowFrom: ["room-global"],
+          rejectMessage: "global room blocked",
+        },
+      },
+    },
+    accountConfig: {
+      groupChat: {
+        triggerMode: "keyword",
+        triggerKeywords: ["account-keyword"],
+      },
+      groupAllowFrom: ["account-user"],
+      groupAllowFromRejectMessage: "account blocked",
+      groups: {
+        roomA: {
+          requireMention: true,
+          mentionPatterns: ["@bot"],
+          allowFrom: ["room-account"],
+        },
+      },
+    },
+    envVars: {
+      WECOM_GROUP_ALLOW_FROM: "env-user",
+    },
+    processEnv: {},
+    accountId: "sales",
+    chatId: "roomA",
+  });
+
+  assert.equal(groupCfg.enabled, true);
+  assert.equal(groupCfg.triggerMode, "mention");
+  assert.equal(groupCfg.requireMention, true);
+  assert.deepEqual(groupCfg.mentionPatterns, ["@bot"]);
+  assert.deepEqual(groupCfg.triggerKeywords, ["account-keyword"]);
+  assert.deepEqual(groupCfg.allowFrom, ["room-account"]);
+  assert.equal(groupCfg.rejectMessage, "account blocked");
+  assert.equal(groupCfg.policySource, "inferred");
+  assert.equal(groupCfg.triggerSource, "account.group.requireMention");
+  assert.equal(groupCfg.allowFromSource, "account.group.allowFrom");
+  assert.equal(groupCfg.rejectMessageSource, "account.root.groupAllowFromRejectMessage");
+  assert.equal(groupCfg.matchedGroupOverride, true);
+  assert.equal(groupCfg.matchedGroupOverrideSource, "account.group");
+  assert.equal(groupCfg.configuredGroupCount, 1);
+});
+
+test("resolveWecomGroupChatConfig keeps explicit open policy even when allowFrom exists", () => {
+  const groupCfg = core.resolveWecomGroupChatConfig({
+    channelConfig: {
+      groupPolicy: "open",
+      groupAllowFrom: ["alice"],
+    },
+    envVars: {},
+    processEnv: {},
+  });
+
+  assert.equal(groupCfg.enabled, true);
+  assert.equal(groupCfg.policyMode, "open");
+  assert.equal(groupCfg.policySource, "channel.root.groupPolicy");
+  assert.deepEqual(groupCfg.allowFrom, ["alice"]);
+  assert.equal(groupCfg.allowFromSource, "channel.root.groupAllowFrom");
+});
+
+test("resolveWecomGroupChatConfig turns explicit allowlist without members into deny", () => {
+  const groupCfg = core.resolveWecomGroupChatConfig({
+    channelConfig: {
+      groupChat: {
+        policy: "allowlist",
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+
+  assert.equal(groupCfg.enabled, false);
+  assert.equal(groupCfg.policyMode, "deny");
+  assert.equal(groupCfg.policySource, "allowlist-empty");
+  assert.deepEqual(groupCfg.allowFrom, []);
+});
+
+test("resolveWecomGroupChatConfig supports per-group policy override", () => {
+  const groupCfg = core.resolveWecomGroupChatConfig({
+    channelConfig: {
+      groupPolicy: "open",
+      groups: {
+        roomA: {
+          policy: "allowlist",
+          allowFrom: ["room-user"],
+        },
+      },
+    },
+    envVars: {},
+    processEnv: {},
+    chatId: "roomA",
+  });
+
+  assert.equal(groupCfg.enabled, true);
+  assert.equal(groupCfg.policyMode, "allowlist");
+  assert.deepEqual(groupCfg.allowFrom, ["room-user"]);
+  assert.equal(groupCfg.policySource, "channel.group.policy");
+  assert.equal(groupCfg.allowFromSource, "channel.group.allowFrom");
+  assert.equal(groupCfg.matchedGroupOverride, true);
+});
+
+test("resolveWecomGroupChatConfig falls back to scoped env authorization", () => {
+  const groupCfg = core.resolveWecomGroupChatConfig({
+    channelConfig: {},
+    accountConfig: {},
+    envVars: {
+      WECOM_SALES_GROUP_ALLOW_FROM: "wecom:Tom,user:Jerry",
+      WECOM_SALES_GROUP_ALLOW_FROM_REJECT_MESSAGE: "sales group blocked",
+    },
+    processEnv: {},
+    accountId: "sales",
+    chatId: "roomB",
+  });
+
+  assert.deepEqual(groupCfg.allowFrom.sort(), ["jerry", "tom"]);
+  assert.equal(groupCfg.rejectMessage, "sales group blocked");
+  assert.equal(groupCfg.matchedGroupOverride, false);
 });
 
 test("resolveWecomTarget parses user/group/party/tag", () => {
@@ -838,6 +1008,26 @@ test("resolveWecomBotModeConfig resolves bot long connection config and enables 
   assert.equal(cfg.longConnection.url, "wss://openws.work.weixin.qq.com");
 });
 
+test("resolveWecomBotModeConfig supports flat botId/secret compatibility fields", () => {
+  const cfg = core.resolveWecomBotModeConfig({
+    channelConfig: {
+      accounts: {
+        ops: {
+          botId: "compat-bot-1",
+          secret: "compat-secret-1",
+        },
+      },
+    },
+    envVars: {},
+    processEnv: {},
+    accountId: "ops",
+  });
+  assert.equal(cfg.enabled, true);
+  assert.equal(cfg.longConnection.enabled, true);
+  assert.equal(cfg.longConnection.botId, "compat-bot-1");
+  assert.equal(cfg.longConnection.secret, "compat-secret-1");
+});
+
 test("resolveWecomBotModeAccountsConfig includes config/env scoped bot accounts", () => {
   const configs = core.resolveWecomBotModeAccountsConfig({
     channelConfig: {
@@ -946,6 +1136,140 @@ test("resolveWecomDeliveryFallbackConfig defaults and normalization", () => {
   });
   assert.equal(configured.enabled, true);
   assert.deepEqual(configured.order, ["response_url", "webhook_bot", "agent_push"]);
+});
+
+test("resolveWecomPendingReplyConfig reads config and env", () => {
+  const defaults = core.resolveWecomPendingReplyConfig({
+    channelConfig: {},
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(defaults.enabled, true);
+  assert.equal(defaults.maxRetries, 3);
+  assert.equal(defaults.retryBackoffMs, 15000);
+  assert.equal(defaults.expireMs, 10 * 60 * 1000);
+  assert.equal(defaults.persist, true);
+  assert.equal(defaults.storeFile, undefined);
+
+  const configured = core.resolveWecomPendingReplyConfig({
+    channelConfig: {
+      delivery: {
+        pendingReply: {
+          enabled: false,
+          maxRetries: 5,
+          retryBackoffMs: 2000,
+          expireMs: 120000,
+          persist: false,
+          storeFile: "/tmp/wecom-pending.json",
+        },
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(configured.enabled, false);
+  assert.equal(configured.maxRetries, 5);
+  assert.equal(configured.retryBackoffMs, 2000);
+  assert.equal(configured.expireMs, 120000);
+  assert.equal(configured.persist, false);
+  assert.equal(configured.storeFile, "/tmp/wecom-pending.json");
+});
+
+test("resolveWecomReasoningConfig derives mode from config and env aliases", () => {
+  const defaults = core.resolveWecomReasoningConfig({
+    channelConfig: {},
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(defaults.mode, "separate");
+  assert.equal(defaults.sendThinkingMessage, true);
+  assert.equal(defaults.includeInFinalAnswer, false);
+  assert.equal(defaults.title, "思考过程");
+  assert.equal(defaults.maxChars, 1200);
+
+  const configured = core.resolveWecomReasoningConfig({
+    channelConfig: {
+      delivery: {
+        reasoning: {
+          mode: "append",
+          title: "内部推理",
+          maxChars: 300,
+        },
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(configured.mode, "append");
+  assert.equal(configured.sendThinkingMessage, false);
+  assert.equal(configured.includeInFinalAnswer, true);
+  assert.equal(configured.title, "内部推理");
+  assert.equal(configured.maxChars, 300);
+
+  const fromLegacyEnv = core.resolveWecomReasoningConfig({
+    channelConfig: {},
+    envVars: {
+      WECOM_SEND_THINKING_MESSAGE: "false",
+      WECOM_REASONING_INCLUDE_IN_FINAL_ANSWER: "false",
+      WECOM_REASONING_TITLE: "隐藏推理",
+    },
+    processEnv: {},
+  });
+  assert.equal(fromLegacyEnv.mode, "hidden");
+  assert.equal(fromLegacyEnv.sendThinkingMessage, false);
+  assert.equal(fromLegacyEnv.includeInFinalAnswer, false);
+  assert.equal(fromLegacyEnv.title, "隐藏推理");
+});
+
+test("resolveWecomReplyFormatConfig reads delivery reply format and env aliases", () => {
+  const defaults = core.resolveWecomReplyFormatConfig({
+    channelConfig: {},
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(defaults.mode, "auto");
+
+  const configured = core.resolveWecomReplyFormatConfig({
+    channelConfig: {
+      delivery: {
+        replyFormat: "markdown",
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(configured.mode, "markdown");
+
+  const fromEnv = core.resolveWecomReplyFormatConfig({
+    channelConfig: {},
+    envVars: {
+      WECOM_REPLY_FORMAT: "text",
+    },
+    processEnv: {},
+  });
+  assert.equal(fromEnv.mode, "text");
+});
+
+test("resolveWecomQuotaTrackingConfig defaults to enabled", () => {
+  const defaults = core.resolveWecomQuotaTrackingConfig({
+    channelConfig: {},
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(defaults.enabled, true);
+
+  const configured = core.resolveWecomQuotaTrackingConfig({
+    channelConfig: {
+      delivery: {
+        quotaTracking: {
+          enabled: false,
+        },
+      },
+    },
+    envVars: {},
+    processEnv: {},
+  });
+  assert.equal(configured.enabled, false);
 });
 
 test("resolveWecomWebhookBotDeliveryConfig reads config and env", () => {

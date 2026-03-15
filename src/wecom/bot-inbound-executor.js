@@ -45,6 +45,7 @@ export async function executeWecomBotInboundFlow(payload = {}) {
     resolveWecomCommandPolicy,
     resolveWecomAllowFromPolicy,
     resolveWecomDmPolicy,
+    resolveWecomReasoningPolicy,
     isWecomSenderAllowed,
     extractLeadingSlashCommand,
     buildWecomBotHelpText,
@@ -66,6 +67,8 @@ export async function executeWecomBotInboundFlow(payload = {}) {
     ensureTranscriptFallbackReader,
     resetWecomConversationSession,
     clearSessionStoreEntry,
+    markWecomReliableInboundActivity = () => null,
+    flushWecomSessionPendingReplies = async () => {},
   } = payload;
 
   assertWecomBotInboundFlowDeps({
@@ -77,6 +80,7 @@ export async function executeWecomBotInboundFlow(payload = {}) {
     api,
     accountId,
     fromUser,
+    chatId,
     content,
     imageEntries,
     imageUrls,
@@ -92,6 +96,12 @@ export async function executeWecomBotInboundFlow(payload = {}) {
     resolveWecomBotProxyConfig,
     resolveWecomGroupChatPolicy,
     resolveWecomDynamicAgentPolicy,
+  });
+  markWecomReliableInboundActivity({
+    mode: "bot",
+    accountId: state.accountId,
+    sessionId: state.baseSessionId,
+    fromUser,
   });
   const { runtime, cfg } = state;
   const { safeFinishStream, safeDeliverReply } = createWecomBotSafeReplyHelpers({
@@ -129,10 +139,12 @@ export async function executeWecomBotInboundFlow(payload = {}) {
       api,
       accountId: state.accountId,
       fromUser,
+      chatId,
       isGroupChat,
       msgType,
       commandBody: state.commandBody,
       normalizedFromUser: state.normalizedFromUser,
+      groupChatPolicy: state.groupChatPolicy,
       resolveWecomCommandPolicy,
       resolveWecomAllowFromPolicy,
       resolveWecomDmPolicy,
@@ -231,6 +243,17 @@ export async function executeWecomBotInboundFlow(payload = {}) {
     const storePath = runtimeContext.storePath;
     const ctxPayload = runtimeContext.ctxPayload;
     const sessionRuntimeId = runtimeContext.sessionRuntimeId;
+    markWecomReliableInboundActivity({
+      mode: "bot",
+      accountId: state.accountId,
+      sessionId: state.sessionId,
+      fromUser,
+    });
+    await flushWecomSessionPendingReplies({
+      mode: "bot",
+      accountId: state.accountId,
+      sessionId: state.sessionId,
+    });
 
     const dispatchResult = await executeWecomBotDispatchRuntime({
       api,
@@ -255,6 +278,7 @@ export async function executeWecomBotInboundFlow(payload = {}) {
       markdownToWecomText,
       isAgentFailureText,
       safeDeliverReply,
+      resolveWecomReasoningPolicy,
       markTranscriptReplyDelivered,
       ACTIVE_LATE_REPLY_WATCHERS,
       ensureTranscriptFallbackReader,

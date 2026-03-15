@@ -16,6 +16,7 @@ function isSupportedActiveStreamMsgItemImage(buffer) {
 
 export async function buildActiveStreamMsgItems({
   mediaUrls,
+  mediaItems,
   mediaType,
   fetchMediaFromUrl,
   proxyUrl,
@@ -23,13 +24,35 @@ export async function buildActiveStreamMsgItems({
 }) {
   const msgItem = [];
   const fallbackUrls = [];
+  const rawItems = [
+    ...(Array.isArray(mediaUrls) ? mediaUrls : []).map((url) => ({
+      url,
+      mediaType,
+    })),
+    ...(Array.isArray(mediaItems) ? mediaItems : []),
+  ];
+  const dedupe = new Set();
+  const candidates = [];
+  for (const item of rawItems) {
+    const normalizedUrl = String(item?.url ?? "").trim();
+    const normalizedType = String(item?.mediaType ?? "").trim().toLowerCase() || undefined;
+    if (!normalizedUrl) continue;
+    const dedupeKey = `${normalizedType || ""}:${normalizedUrl}`;
+    if (dedupe.has(dedupeKey)) continue;
+    dedupe.add(dedupeKey);
+    candidates.push({
+      url: normalizedUrl,
+      mediaType: normalizedType,
+    });
+  }
 
-  for (const mediaUrl of mediaUrls) {
+  for (const mediaItem of candidates) {
+    const mediaUrl = mediaItem.url;
     if (msgItem.length >= ACTIVE_STREAM_MSG_ITEM_LIMIT) {
       fallbackUrls.push(mediaUrl);
       continue;
     }
-    const target = resolveWecomOutboundMediaTarget({ mediaUrl, mediaType });
+    const target = resolveWecomOutboundMediaTarget({ mediaUrl, mediaType: mediaItem.mediaType ?? mediaType });
     if (target.type !== "image") {
       fallbackUrls.push(mediaUrl);
       continue;

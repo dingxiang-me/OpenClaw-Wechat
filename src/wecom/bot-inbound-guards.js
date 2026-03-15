@@ -59,10 +59,12 @@ export async function applyWecomBotCommandAndSenderGuard({
   api,
   accountId = "default",
   fromUser,
+  chatId = "",
   isGroupChat = false,
   msgType = "text",
   commandBody = "",
   normalizedFromUser = "",
+  groupChatPolicy = {},
   resolveWecomCommandPolicy,
   resolveWecomAllowFromPolicy,
   resolveWecomDmPolicy,
@@ -83,6 +85,30 @@ export async function applyWecomBotCommandAndSenderGuard({
   const isAdminUser = commandPolicy.adminUsers.includes(String(normalizedFromUser ?? "").trim().toLowerCase());
   const dmPolicy = resolveWecomDmPolicy(api, accountId, {});
   const allowFromPolicy = resolveWecomAllowFromPolicy(api, accountId, {});
+
+  if (isGroupChat) {
+    const groupPolicyMode = String(groupChatPolicy?.policyMode ?? (groupChatPolicy?.enabled === false ? "deny" : "open"))
+      .trim()
+      .toLowerCase();
+    const groupSenderAllowed =
+      isAdminUser ||
+      groupPolicyMode === "open" ||
+      (groupPolicyMode !== "deny" &&
+        (groupChatPolicy.allowFrom.includes("*") ||
+          isWecomSenderAllowed({
+            senderId: normalizedFromUser,
+            allowFrom: groupChatPolicy.allowFrom,
+          })));
+    if (!groupSenderAllowed) {
+      return {
+        ok: false,
+        finishText: groupChatPolicy?.rejectMessage || "当前群聊发送者未授权，请联系管理员。",
+        commandBody: String(commandBody ?? ""),
+        isAdminUser,
+        commandPolicy,
+      };
+    }
+  }
 
   if (!isGroupChat) {
     const dmAccess = await resolveWecomDirectMessageAccess({
@@ -176,7 +202,11 @@ export async function applyWecomBotCommandAndSenderGuard({
       if (commandKey === "/status") {
         return {
           ok: false,
-          finishText: buildWecomBotStatusText(api, fromUser),
+          finishText: buildWecomBotStatusText(api, fromUser, {
+            accountId,
+            chatId,
+            isGroupChat,
+          }),
           commandBody: nextCommandBody,
           isAdminUser,
           commandPolicy,

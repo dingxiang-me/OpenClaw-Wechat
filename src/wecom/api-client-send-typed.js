@@ -29,10 +29,11 @@ export function createWecomTypedMessageSender({
     payload,
     logger,
     proxyUrl,
+    apiBaseUrl,
     errorPrefix,
   }) {
     return apiLimiter.execute(async () => {
-      const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger });
+      const accessToken = await getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger, apiBaseUrl });
       const { sendUrl, body, isAppChat } = buildWecomMessageSendRequest({
         accessToken,
         agentId,
@@ -42,6 +43,7 @@ export function createWecomTypedMessageSender({
         chatId,
         msgType,
         payload,
+        apiBaseUrl,
       });
       const sendRes = await fetchWithRetry(
         sendUrl,
@@ -49,6 +51,7 @@ export function createWecomTypedMessageSender({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          apiBaseUrl,
         },
         3,
         1000,

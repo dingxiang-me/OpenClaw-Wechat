@@ -62,11 +62,15 @@ export function createWecomObservabilityMetricsStore({
     layer = "",
     ok = false,
     finalStatus = "",
+    deliveryStatus = "",
     accountId = "default",
     attempts = [],
   } = {}) {
     const normalizedLayer = String(layer ?? "").trim().toLowerCase() || "unknown";
-    const normalizedStatus = String(finalStatus ?? "").trim().toLowerCase() || (ok ? "ok" : "failed");
+    const normalizedStatus =
+      String(deliveryStatus ?? "").trim().toLowerCase() ||
+      String(finalStatus ?? "").trim().toLowerCase() ||
+      (ok ? "ok" : "failed");
     const normalizedAccountId = String(accountId ?? "default").trim().toLowerCase() || "default";
     state.deliveryTotal += 1;
     if (ok) state.deliverySuccess += 1;
@@ -77,10 +81,12 @@ export function createWecomObservabilityMetricsStore({
 
     const normalizedAttempts = Array.isArray(attempts) ? attempts : [];
     for (const attempt of normalizedAttempts) {
-      if (attempt?.status === "error") {
+      if (attempt?.status === "error" || attempt?.status === "miss") {
         pushRecentFailure({
           scope: "delivery",
-          reason: String(attempt?.reason ?? "unknown"),
+          reason: `${String(attempt?.deliveryStatus ?? attempt?.status ?? "unknown")} ${String(
+            attempt?.reason ?? "unknown",
+          )}`.trim(),
           accountId: normalizedAccountId,
           layer: String(attempt?.layer ?? ""),
         });

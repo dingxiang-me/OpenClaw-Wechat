@@ -41,6 +41,8 @@ import {
 import { createWecomPluginBaseServices } from "./plugin-base-services.js";
 import { createWecomPluginAccountPolicyServices } from "./plugin-account-policy-services.js";
 import { createWecomPluginDeliveryInboundServices } from "./plugin-delivery-inbound-services.js";
+import { createWecomPendingReplyManager } from "./pending-reply-manager.js";
+import { createWecomReliableDeliveryPersistence } from "./reliable-delivery-persistence.js";
 import { createWecomBotInboundContentBuilder } from "./bot-inbound-content.js";
 import { createWecomBotLongConnectionManager } from "./bot-long-connection-manager.js";
 import { createWecomDocToolRegistrar } from "./doc-tool.js";
@@ -68,6 +70,7 @@ export function createWecomPluginServices({
   fetchImpl = fetch,
   proxyAgentCtor = ProxyAgent,
 } = {}) {
+  let pendingReplyApi = null;
   const base = createWecomPluginBaseServices({
     fetchImpl,
     proxyAgentCtor,
@@ -77,6 +80,7 @@ export function createWecomPluginServices({
     processEnv,
     getGatewayRuntime: base.getGatewayRuntime,
     getWecomObservabilityMetrics: base.getWecomObservabilityMetrics,
+    getWecomReliableDeliverySnapshot: base.getWecomReliableDeliverySnapshot,
     normalizeWecomResolvedTarget: base.normalizeWecomResolvedTarget,
     formatWecomTargetForLog: base.formatWecomTargetForLog,
     sendWecomWebhookText: base.sendWecomWebhookText,
@@ -85,11 +89,36 @@ export function createWecomPluginServices({
     sendWecomText: base.sendWecomText,
   });
 
+  const reliableDeliveryPersistence = createWecomReliableDeliveryPersistence({
+    reliableDeliveryStore: base.reliableDeliveryStore,
+    resolveWecomPendingReplyPolicy: accountPolicy.resolveWecomPendingReplyPolicy,
+    getGatewayRuntime: base.getGatewayRuntime,
+    processEnv,
+    logger: {
+      warn: (...args) => pendingReplyApi?.logger?.warn?.(...args),
+      debug: (...args) => pendingReplyApi?.logger?.debug?.(...args),
+    },
+  });
+
+  function markWecomReliableInboundActivity(payload = {}) {
+    const result = base.markWecomReliableInboundActivity(payload);
+    reliableDeliveryPersistence.schedulePersist("reliable-inbound");
+    return result;
+  }
+
+  function recordReliableDeliveryOutcome(payload = {}) {
+    const result = base.recordReliableDeliveryOutcome(payload);
+    reliableDeliveryPersistence.schedulePersist("reliable-delivery");
+    return result;
+  }
+
   const deliveryInbound = createWecomPluginDeliveryInboundServices({
     resolveWecomStreamManagerPolicy: accountPolicy.resolveWecomStreamManagerPolicy,
     setBotStreamExpireMs: base.setBotStreamExpireMs,
     attachWecomProxyDispatcher: base.attachWecomProxyDispatcher,
     resolveWecomDeliveryFallbackPolicy: accountPolicy.resolveWecomDeliveryFallbackPolicy,
+    resolveWecomReasoningPolicy: accountPolicy.resolveWecomReasoningPolicy,
+    resolveWecomReplyFormatPolicy: accountPolicy.resolveWecomReplyFormatPolicy,
     resolveWecomWebhookBotDeliveryPolicy: accountPolicy.resolveWecomWebhookBotDeliveryPolicy,
     resolveWecomObservabilityPolicy: accountPolicy.resolveWecomObservabilityPolicy,
     resolveWecomBotProxyConfig: accountPolicy.resolveWecomBotProxyConfig,
@@ -105,13 +134,59 @@ export function createWecomPluginServices({
     drainBotStreamMedia: base.drainBotStreamMedia,
     getWecomConfig: accountPolicy.getWecomConfig,
     sendWecomText: base.sendWecomText,
+    sendWecomMarkdown: base.sendWecomMarkdown,
     fetchMediaFromUrl: base.fetchMediaFromUrl,
     extractWorkspacePathsFromText: base.extractWorkspacePathsFromText,
     resolveWorkspacePathToHost: base.resolveWorkspacePathToHost,
     recordDeliveryMetric: base.recordDeliveryMetric,
+    recordReliableDeliveryOutcome,
+    enqueuePendingReply: (api, payload) => {
+      pendingReplyApi = api ?? pendingReplyApi;
+      return pendingReplyManager?.enqueuePendingReply?.(api, payload);
+    },
+    sendWecomOutboundMediaBatch: base.sendWecomOutboundMediaBatch,
     downloadWecomMedia: base.downloadWecomMedia,
     resolveWecomVoiceTranscriptionConfig: accountPolicy.resolveWecomVoiceTranscriptionConfig,
     transcribeInboundVoice: accountPolicy.transcribeInboundVoice,
+  });
+  const pendingReplyManager = createWecomPendingReplyManager({
+    reliableDeliveryStore: base.reliableDeliveryStore,
+    resolveWecomPendingReplyPolicy: accountPolicy.resolveWecomPendingReplyPolicy,
+    ensurePersistenceLoaded: (api) => reliableDeliveryPersistence.ensureLoaded(api),
+    schedulePersistenceFlush: (reason, api) => reliableDeliveryPersistence.schedulePersist(reason, api),
+    deliverPendingReply: async (entry) => {
+      if (entry?.mode === "bot") {
+        return deliveryInbound.deliverBotReplyText({
+          api: pendingReplyApi,
+          fromUser: entry.fromUser,
+          accountId: entry.accountId,
+          sessionId: entry.sessionId,
+          text: entry.payload?.text,
+          thinkingContent: entry.payload?.thinkingContent,
+          mediaItems: entry.payload?.mediaItems,
+          mediaUrls: entry.payload?.mediaUrls,
+          mediaType: entry.payload?.mediaType,
+          reason: "pending-reply",
+          allowPendingEnqueue: false,
+        });
+      }
+      return deliveryInbound.deliverAgentReply({
+        api: pendingReplyApi,
+        fromUser: entry.fromUser,
+        accountId: entry.accountId,
+        sessionId: entry.sessionId,
+        text: entry.payload?.text,
+        thinkingContent: entry.payload?.thinkingContent,
+        mediaItems: entry.payload?.mediaItems,
+        mediaUrls: entry.payload?.mediaUrls,
+        mediaType: entry.payload?.mediaType,
+        reason: "pending-reply",
+        allowPendingEnqueue: false,
+      });
+    },
+    logger: {
+      warn: (...args) => pendingReplyApi?.logger?.warn?.(...args),
+    },
   });
   const buildBotInboundContent = createWecomBotInboundContentBuilder({
     fetchMediaFromUrl: base.fetchMediaFromUrl,
@@ -157,6 +232,18 @@ export function createWecomPluginServices({
     ...base,
     ...accountPolicy,
     ...deliveryInbound,
+    markWecomReliableInboundActivity,
+    recordReliableDeliveryOutcome,
+    enqueueWecomPendingReply: pendingReplyManager.enqueuePendingReply,
+    flushDueWecomPendingReplies: pendingReplyManager.flushDuePendingReplies,
+    flushWecomSessionPendingReplies: pendingReplyManager.flushSessionPendingReplies,
+    initializeWecomReliableDeliveryPersistence: async (api) => {
+      pendingReplyApi = api ?? pendingReplyApi;
+      await reliableDeliveryPersistence.ensureLoaded(api);
+      await pendingReplyManager.initialize(api);
+      return true;
+    },
+    persistWecomReliableDeliveryState: (reason = "manual", api) => reliableDeliveryPersistence.persistNow(reason, api),
     buildBotInboundContent,
     registerWecomDocTools,
     resetWecomConversationSession,

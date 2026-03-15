@@ -31,6 +31,7 @@ export function createWecomAgentPushDeliverer({
       text: `${content || fallbackText}${mediaFallbackSuffix}`.trim(),
       logger: api?.logger,
       proxyUrl: account.outboundProxy,
+      apiBaseUrl: account.apiBaseUrl,
     });
     return {
       ok: true,

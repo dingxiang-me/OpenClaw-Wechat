@@ -1,3 +1,5 @@
+import { formatWecomQuotaState, formatWecomReplyWindowState } from "./reliable-delivery.js";
+
 function buildWebhookTargetStatusLine({ aliases, scope = "当前账户", maxPreview = 6 }) {
   const normalized = Array.isArray(aliases) ? aliases : [];
   if (normalized.length === 0) {
@@ -50,6 +52,100 @@ function buildEventPolicyStatusLine(eventPolicy = {}) {
   return "ℹ️ 事件策略：已启用（enter_agent 欢迎语未启用）";
 }
 
+function buildGroupAuthorizationStatusLine(groupPolicy = {}) {
+  const policyMode = String(groupPolicy?.policyMode ?? (groupPolicy?.enabled === false ? "deny" : "open"))
+    .trim()
+    .toLowerCase();
+  if (!groupPolicy?.enabled || policyMode === "deny") {
+    return "⚠️ 群聊授权：已关闭（deny）";
+  }
+  const allowFrom = Array.isArray(groupPolicy?.allowFrom) ? groupPolicy.allowFrom : [];
+  const overrideLabel = groupPolicy?.matchedGroupOverride
+    ? "（当前群已应用专属规则）"
+    : Number(groupPolicy?.configuredGroupCount || 0) > 0
+      ? `（已配置 ${Number(groupPolicy.configuredGroupCount || 0)} 个群覆盖）`
+      : "";
+  if (policyMode === "open" || allowFrom.includes("*")) {
+    return `ℹ️ 群聊授权：开放（open）${overrideLabel}`;
+  }
+  return `✅ 群聊授权：白名单（${allowFrom.length} 个成员）${overrideLabel}`;
+}
+
+function truncateStatusSnippet(text, maxChars = 48) {
+  const normalized = String(text ?? "").trim();
+  if (!normalized) return "";
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, Math.max(1, maxChars - 1))}…`;
+}
+
+function formatGroupPolicySourceLabel(source = "") {
+  const normalized = String(source ?? "").trim();
+  if (!normalized) return "未配置";
+  if (normalized === "default") return "默认值";
+  if (normalized === "inferred") return "自动推断";
+  if (normalized === "enabled=false") return "enabled=false";
+  if (normalized === "allowlist-empty") return "allowlist 空白名单";
+  if (normalized.startsWith("env.")) return "环境变量";
+  if (normalized.startsWith("account.group.")) return "当前账号当前群覆盖";
+  if (normalized === "account.group") return "当前账号当前群覆盖";
+  if (normalized.startsWith("account.groupChat.")) return "当前账号群默认";
+  if (normalized === "account.groupChat") return "当前账号群默认";
+  if (normalized.startsWith("account.root.")) return "当前账号根配置";
+  if (normalized === "account.root") return "当前账号根配置";
+  if (normalized.startsWith("channel.group.")) return "全局当前群覆盖";
+  if (normalized === "channel.group") return "全局当前群覆盖";
+  if (normalized.startsWith("channel.groupChat.")) return "全局群默认";
+  if (normalized === "channel.groupChat") return "全局群默认";
+  if (normalized.startsWith("channel.root.")) return "全局根配置";
+  if (normalized === "channel.root") return "全局根配置";
+  return normalized;
+}
+
+function buildGroupPolicySourceLine(groupPolicy = {}, { includeTrigger = true } = {}) {
+  const segments = [];
+  const policySourceLabel = formatGroupPolicySourceLabel(groupPolicy?.policySource);
+  if (policySourceLabel && policySourceLabel !== "未配置") {
+    segments.push(`准入=${policySourceLabel}`);
+  }
+  if (includeTrigger) {
+    const triggerSourceLabel = formatGroupPolicySourceLabel(groupPolicy?.triggerSource);
+    if (triggerSourceLabel && triggerSourceLabel !== "未配置") {
+      segments.push(`触发=${triggerSourceLabel}`);
+    }
+  }
+  if (Array.isArray(groupPolicy?.allowFrom) && groupPolicy.allowFrom.length > 0) {
+    const allowFromSourceLabel = formatGroupPolicySourceLabel(groupPolicy?.allowFromSource);
+    if (allowFromSourceLabel && allowFromSourceLabel !== "未配置") {
+      segments.push(`成员=${allowFromSourceLabel}`);
+    }
+  }
+  if (groupPolicy?.rejectMessageSource && groupPolicy.rejectMessageSource !== "default") {
+    segments.push(`拒绝文案=${formatGroupPolicySourceLabel(groupPolicy.rejectMessageSource)}`);
+  }
+  return segments.length > 0 ? `🧩 群规则来源：${segments.join(" / ")}` : "";
+}
+
+function buildGroupAllowFromEffectLine(groupPolicy = {}) {
+  const allowFrom = Array.isArray(groupPolicy?.allowFrom) ? groupPolicy.allowFrom : [];
+  const policyMode = String(groupPolicy?.policyMode ?? "").trim().toLowerCase();
+  if (policyMode === "open" && allowFrom.length > 0 && !allowFrom.includes("*")) {
+    return `ℹ️ 群成员白名单：已配置 ${allowFrom.length} 个成员，但当前 open 模式不会限制触发`;
+  }
+  if (policyMode === "deny" && groupPolicy?.policySource === "allowlist-empty") {
+    return "⚠️ 群成员白名单：allowlist 未配置成员，当前已等价关闭群聊";
+  }
+  return "";
+}
+
+function buildGroupRejectMessageLine(groupPolicy = {}) {
+  if (!groupPolicy?.rejectMessageSource || groupPolicy.rejectMessageSource === "default") {
+    return "";
+  }
+  const text = truncateStatusSnippet(groupPolicy?.rejectMessage, 40);
+  if (!text) return "";
+  return `💬 群拒绝文案：${text}`;
+}
+
 function buildObservabilityStatusLines(observabilityMetrics = {}) {
   const inboundTotal = Number(observabilityMetrics?.inboundTotal || 0);
   const deliveryTotal = Number(observabilityMetrics?.deliveryTotal || 0);
@@ -100,6 +196,61 @@ function buildVoiceStatusLine(voiceConfig = {}, voiceRuntimeInfo = null) {
   return `${baseLine}（${commandState}，${ffmpegState}）${issueSuffix}`;
 }
 
+function buildReasoningPolicyStatusLine(reasoningPolicy = {}) {
+  const mode = String(reasoningPolicy?.mode ?? "separate").trim().toLowerCase();
+  if (mode === "append") {
+    return `🧠 推理展示：合并到最终回复（标题 ${String(reasoningPolicy?.title ?? "思考过程")}）`;
+  }
+  if (mode === "hidden") {
+    return "🧠 推理展示：隐藏";
+  }
+  return `🧠 推理展示：分离显示（标题 ${String(reasoningPolicy?.title ?? "思考过程")}）`;
+}
+
+function buildReplyFormatStatusLine(replyFormatPolicy = {}) {
+  const mode = String(replyFormatPolicy?.mode ?? "auto").trim().toLowerCase();
+  if (mode === "markdown") {
+    return "📝 最终回复格式：优先 markdown";
+  }
+  if (mode === "text") {
+    return "📝 最终回复格式：强制纯文本";
+  }
+  return "📝 最终回复格式：自动";
+}
+
+function buildReliableDeliveryStatusLines({
+  reliableDeliverySnapshot = null,
+  pendingReplyPolicy = {},
+  quotaTrackingPolicy = {},
+} = {}) {
+  const account = reliableDeliverySnapshot?.account ?? {};
+  const session = reliableDeliverySnapshot?.session ?? null;
+  const pendingEnabled = pendingReplyPolicy?.enabled === true;
+  const pendingPersist = pendingEnabled && pendingReplyPolicy?.persist !== false;
+  const quotaEnabled = quotaTrackingPolicy?.enabled !== false;
+  const accountWindow = formatWecomReplyWindowState(account.replyWindowState);
+  const accountQuota = quotaEnabled ? formatWecomQuotaState(account.proactiveQuotaState) : "disabled";
+  const accountPending = pendingEnabled ? Number(account.pendingCount || 0) : 0;
+  const accountPrefix = accountPending > 0 ? "⚠️" : "ℹ️";
+  const lines = [
+    `${accountPrefix} 可靠投递：窗口 ${accountWindow} / 主动发送 ${accountQuota} / Pending Reply ${
+      pendingEnabled ? `${accountPending} 条${pendingPersist ? "（持久化 on）" : "（持久化 off）"}` : "off"
+    }`,
+  ];
+  if (!session) return lines;
+  const sessionWindow = formatWecomReplyWindowState(session.replyWindowState);
+  const sessionPending = pendingEnabled ? Number(session.pendingCount || 0) : 0;
+  const sessionFailure = String(session.lastFailureReason ?? "").trim();
+  lines.push(
+    `${
+      sessionPending > 0 || sessionFailure ? "⚠️" : "ℹ️"
+    } 当前会话：窗口 ${sessionWindow} / 待补发 ${pendingEnabled ? `${sessionPending} 条` : "off"} / 最近失败 ${
+      sessionFailure || "无"
+    }`,
+  );
+  return lines;
+}
+
 function buildAgentReadinessLines({ config = {}, voiceConfig = {} } = {}) {
   const canReceive = Boolean(config?.callbackToken && config?.callbackAesKey && config?.webhookPath);
   const canReply = Boolean(config?.corpId && config?.corpSecret && config?.agentId);
@@ -139,6 +290,9 @@ function buildBotReadinessLines({ botConfig = {}, config = {} } = {}) {
 
 export function buildAgentStatusText({
   fromUser,
+  accountId,
+  chatId,
+  isGroupChat = false,
   config,
   accountIds,
   webhookTargetAliases,
@@ -158,9 +312,16 @@ export function buildAgentStatusText({
   dynamicAgentPolicy,
   observabilityMetrics,
   bindingsCount = 0,
+  reliableDeliverySnapshot,
+  pendingReplyPolicy,
+  quotaTrackingPolicy,
+  reasoningPolicy,
+  replyFormatPolicy,
 } = {}) {
   const proxyEnabled = Boolean(config?.outboundProxy);
   const voiceStatusLine = buildVoiceStatusLine(voiceConfig, voiceRuntimeInfo);
+  const reasoningPolicyLine = buildReasoningPolicyStatusLine(reasoningPolicy);
+  const replyFormatPolicyLine = buildReplyFormatStatusLine(replyFormatPolicy);
   const readinessLines = buildAgentReadinessLines({ config, voiceConfig });
   const commandPolicyLine = commandPolicy.enabled
     ? `✅ 指令白名单已启用（${commandPolicy.allowlist.length} 条，管理员 ${commandPolicy.adminUsers.length} 人）`
@@ -178,6 +339,10 @@ export function buildAgentStatusText({
         ? `✅ 群聊触发：关键词模式（${(groupPolicy.triggerKeywords || []).join(" / ") || "未配置关键词"}）`
         : "✅ 群聊触发：无需 @（全部处理）"
     : "⚠️ 群聊处理未启用";
+  const groupAuthorizationLine = buildGroupAuthorizationStatusLine(groupPolicy);
+  const groupPolicySourceLine = buildGroupPolicySourceLine(groupPolicy);
+  const groupAllowFromEffectLine = buildGroupAllowFromEffectLine(groupPolicy);
+  const groupRejectMessageLine = buildGroupRejectMessageLine(groupPolicy);
   const debouncePolicyLine = debouncePolicy.enabled
     ? `✅ 文本防抖合并已启用（${debouncePolicy.windowMs}ms / 最多 ${debouncePolicy.maxBatch} 条）`
     : "ℹ️ 文本防抖合并未启用";
@@ -203,12 +368,18 @@ export function buildAgentStatusText({
   const routePolicyLine = buildRoutePolicyStatusLine({ bindingsCount, dynamicAgentPolicy });
   const entryVisibilityLine = "✅ 微信插件入口联系人：Agent 模式可见（自建应用）";
   const observabilityLines = buildObservabilityStatusLines(observabilityMetrics);
+  const reliableDeliveryLines = buildReliableDeliveryStatusLines({
+    reliableDeliverySnapshot,
+    pendingReplyPolicy,
+    quotaTrackingPolicy,
+  });
 
   return `📊 系统状态
 
 渠道：企业微信 (WeCom)
 会话ID：wecom:${fromUser}
 账户ID：${config?.accountId || "default"}
+${isGroupChat ? `当前群ID：${chatId || "unknown"}` : "当前会话：私聊"}
 已配置账户：${accountIds.join(", ")}
 插件版本：${pluginVersion}
 
@@ -225,6 +396,10 @@ ${allowFromPolicyLine}
 ${dmPolicyLine}
 ${eventPolicyLine}
 ${groupPolicyLine}
+${groupAuthorizationLine}
+${groupPolicySourceLine}
+${groupAllowFromEffectLine}
+${groupRejectMessageLine}
 ${debouncePolicyLine}
 ${streamingPolicyLine}
 ${fallbackPolicyLine}
@@ -236,12 +411,18 @@ ${routePolicyLine}
 ${entryVisibilityLine}
 ${proxyEnabled ? "✅ WeCom 出站代理已启用" : "ℹ️ WeCom 出站代理未启用"}
 ${voiceStatusLine}
+${reasoningPolicyLine}
+${replyFormatPolicyLine}
+${reliableDeliveryLines.join("\n")}
 ${observabilityLines.status}
 ${observabilityLines.recent}`;
 }
 
 export function buildBotStatusText({
   fromUser,
+  accountId = "default",
+  chatId = "",
+  isGroupChat = false,
   pluginVersion,
   botConfig,
   allWebhookTargetAliases,
@@ -257,6 +438,11 @@ export function buildBotStatusText({
   observabilityMetrics,
   config = {},
   bindingsCount = 0,
+  reliableDeliverySnapshot,
+  pendingReplyPolicy,
+  quotaTrackingPolicy,
+  reasoningPolicy,
+  replyFormatPolicy,
 } = {}) {
   const readinessLines = buildBotReadinessLines({ botConfig, config });
   const commandPolicyLine = commandPolicy.enabled
@@ -271,6 +457,10 @@ export function buildBotStatusText({
   const groupPolicyLine = groupPolicy.enabled
     ? "✅ 群聊触发：仅 @ 机器人后处理（企业微信 Bot 平台限制）"
     : "⚠️ 群聊处理未启用";
+  const groupAuthorizationLine = buildGroupAuthorizationStatusLine(groupPolicy);
+  const groupPolicySourceLine = buildGroupPolicySourceLine(groupPolicy, { includeTrigger: false });
+  const groupAllowFromEffectLine = buildGroupAllowFromEffectLine(groupPolicy);
+  const groupRejectMessageLine = buildGroupRejectMessageLine(groupPolicy);
   const fallbackPolicyLine = deliveryFallbackPolicy.enabled
     ? `✅ 回包兜底链路已启用（${deliveryFallbackPolicy.order.join(" > ")}）`
     : "ℹ️ 回包兜底链路未启用（仅 active_stream）";
@@ -294,11 +484,20 @@ export function buildBotStatusText({
   const routePolicyLine = buildRoutePolicyStatusLine({ bindingsCount, dynamicAgentPolicy });
   const entryVisibilityLine = "ℹ️ 微信插件入口联系人：Bot 模式通常不显示（请通过机器人会话/群聊入口触发）";
   const observabilityLines = buildObservabilityStatusLines(observabilityMetrics);
+  const reasoningPolicyLine = buildReasoningPolicyStatusLine(reasoningPolicy);
+  const replyFormatPolicyLine = buildReplyFormatStatusLine(replyFormatPolicy);
+  const reliableDeliveryLines = buildReliableDeliveryStatusLines({
+    reliableDeliverySnapshot,
+    pendingReplyPolicy,
+    quotaTrackingPolicy,
+  });
   return `📊 系统状态
 
 渠道：企业微信 AI 机器人 (Bot)
 会话ID：wecom-bot:${fromUser}
 插件版本：${pluginVersion}
+账户ID：${accountId}
+${isGroupChat ? `当前群ID：${chatId || "unknown"}` : "当前会话：私聊"}
 Bot Webhook：${botConfig.webhookPath}
 
 功能状态：
@@ -309,6 +508,10 @@ ${allowFromPolicyLine}
 ${dmPolicyLine}
 ${eventPolicyLine}
 ${groupPolicyLine}
+${groupAuthorizationLine}
+${groupPolicySourceLine}
+${groupAllowFromEffectLine}
+${groupRejectMessageLine}
 ${fallbackPolicyLine}
 ${streamManagerPolicyLine}
 ${webhookBotPolicyLine}
@@ -317,6 +520,9 @@ ${webhookTargetsLine}
 ${dynamicAgentPolicyLine}
 ${routePolicyLine}
 ${entryVisibilityLine}
+${reasoningPolicyLine}
+${replyFormatPolicyLine}
+${reliableDeliveryLines.join("\n")}
 ${observabilityLines.status}
 ${observabilityLines.recent}`;
 }

@@ -70,6 +70,30 @@ export async function applyWecomAgentInboundGuards({
   const dmPolicy = resolveWecomDmPolicy(api, resolvedAccountId, config);
   const allowFromPolicy = resolveWecomAllowFromPolicy(api, resolvedAccountId, config);
 
+  if (isGroupChat) {
+    const groupPolicyMode = String(groupChatPolicy?.policyMode ?? (groupChatPolicy?.enabled === false ? "deny" : "open"))
+      .trim()
+      .toLowerCase();
+    const groupSenderAllowed =
+      isAdminUser ||
+      groupPolicyMode === "open" ||
+      (groupPolicyMode !== "deny" &&
+        (groupChatPolicy.allowFrom.includes("*") ||
+          isWecomSenderAllowed({
+            senderId: normalizedFromUser,
+            allowFrom: groupChatPolicy.allowFrom,
+          })));
+    if (!groupSenderAllowed) {
+      api?.logger?.warn?.(
+        `wecom: sender blocked by group policy account=${resolvedAccountId} chatId=${chatId || "unknown"} user=${normalizedFromUser} mode=${groupPolicyMode || "open"}`,
+      );
+      if (groupChatPolicy?.rejectMessage) {
+        await sendTextToUser(groupChatPolicy.rejectMessage);
+      }
+      return { ok: false, commandBody: nextCommandBody, isAdminUser };
+    }
+  }
+
   if (!isGroupChat) {
     const dmAccess = await resolveWecomDirectMessageAccess({
       api,

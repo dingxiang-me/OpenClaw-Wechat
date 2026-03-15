@@ -38,12 +38,36 @@ export function createWecomAgentMediaSender({
     chatId,
     mediaUrl,
     mediaUrls,
+    mediaItems,
     mediaType,
     logger,
     proxyUrl,
+    apiBaseUrl,
     maxBytes = 20 * 1024 * 1024,
   } = {}) {
-    const candidates = normalizeOutboundMediaUrls({ mediaUrl, mediaUrls });
+    const rawItems = [
+      ...[mediaUrl, ...(Array.isArray(mediaUrls) ? mediaUrls : [])]
+        .map((url) => ({
+          url,
+          mediaType,
+        }))
+        .filter((item) => String(item?.url ?? "").trim()),
+      ...(Array.isArray(mediaItems) ? mediaItems : []),
+    ];
+    const dedupe = new Set();
+    const candidates = [];
+    for (const item of rawItems) {
+      const normalizedUrl = String(item?.url ?? "").trim();
+      const normalizedType = String(item?.mediaType ?? "").trim().toLowerCase() || undefined;
+      if (!normalizedUrl) continue;
+      const dedupeKey = `${normalizedType || ""}:${normalizedUrl}`;
+      if (dedupe.has(dedupeKey)) continue;
+      dedupe.add(dedupeKey);
+      candidates.push({
+        url: normalizedUrl,
+        mediaType: normalizedType,
+      });
+    }
     if (candidates.length === 0) {
       return { total: 0, sentCount: 0, failed: [] };
     }
@@ -54,10 +78,10 @@ export function createWecomAgentMediaSender({
     for (const candidate of candidates) {
       try {
         const target = resolveWecomOutboundMediaTarget({
-          mediaUrl: candidate,
-          mediaType: candidates.length === 1 ? mediaType : undefined,
+          mediaUrl: candidate.url,
+          mediaType: candidate.mediaType ?? (candidates.length === 1 ? mediaType : undefined),
         });
-        const { buffer } = await fetchMediaFromUrl(candidate, {
+        const { buffer } = await fetchMediaFromUrl(candidate.url, {
           proxyUrl,
           logger,
           forceProxy: Boolean(proxyUrl),
@@ -79,9 +103,10 @@ export function createWecomAgentMediaSender({
             text: fallbackText,
             logger,
             proxyUrl,
+            apiBaseUrl,
           });
           logger?.info?.(
-            `wecom: tiny file fallback as text (${buffer.length} bytes) target=${candidate.slice(0, 120)}`,
+            `wecom: tiny file fallback as text (${buffer.length} bytes) target=${candidate.url.slice(0, 120)}`,
           );
           sentCount += 1;
           continue;
@@ -94,6 +119,7 @@ export function createWecomAgentMediaSender({
           filename: target.filename,
           logger,
           proxyUrl,
+          apiBaseUrl,
         });
         if (target.type === "image") {
           await sendWecomImage({
@@ -107,6 +133,7 @@ export function createWecomAgentMediaSender({
             mediaId,
             logger,
             proxyUrl,
+            apiBaseUrl,
           });
         } else if (target.type === "video") {
           await sendWecomVideo({
@@ -120,6 +147,7 @@ export function createWecomAgentMediaSender({
             mediaId,
             logger,
             proxyUrl,
+            apiBaseUrl,
           });
         } else if (target.type === "voice") {
           await sendWecomVoice({
@@ -133,6 +161,7 @@ export function createWecomAgentMediaSender({
             mediaId,
             logger,
             proxyUrl,
+            apiBaseUrl,
           });
         } else {
           await sendWecomFile({
@@ -146,15 +175,16 @@ export function createWecomAgentMediaSender({
             mediaId,
             logger,
             proxyUrl,
+            apiBaseUrl,
           });
         }
         sentCount += 1;
       } catch (err) {
         failed.push({
-          url: candidate,
+          url: candidate.url,
           reason: String(err?.message || err),
         });
-        logger?.warn?.(`wecom: failed to send outbound media ${candidate}: ${String(err?.message || err)}`);
+        logger?.warn?.(`wecom: failed to send outbound media ${candidate.url}: ${String(err?.message || err)}`);
       }
     }
 

@@ -52,6 +52,7 @@ export function createPluginRouteRuntimeDeps(context = {}) {
       resolveWecomBotConfig: context.resolveWecomBotConfig,
       resolveWecomBotConfigs: context.resolveWecomBotConfigs,
       syncWecomBotLongConnections: context.syncWecomBotLongConnections,
+      initializeWecomReliableDeliveryPersistence: context.initializeWecomReliableDeliveryPersistence,
       listEnabledWecomAccounts: context.listEnabledWecomAccounts,
       getWecomConfig: context.getWecomConfig,
       wecomChannelPlugin: context.wecomChannelPlugin,

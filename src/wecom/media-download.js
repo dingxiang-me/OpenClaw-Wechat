@@ -32,12 +32,12 @@ export {
 export function extractWorkspacePathsFromText(text, maxCount = 8) {
   const raw = String(text ?? "");
   if (!raw) return [];
-  const matches = raw.match(/(?:MEDIA:\s*)?(\/workspace\/[^\s"'`<>()，。；：！？、]+)/g) ?? [];
+  const matches = raw.match(/(?:(?:MEDIA|FILE):\s*)?(\/workspace\/[^\s"'`<>()，。；：！？、]+)/gi) ?? [];
   const dedupe = new Set();
   const out = [];
   for (const chunk of matches) {
     const normalized = String(chunk)
-      .replace(/^MEDIA:\s*/i, "")
+      .replace(/^(?:MEDIA|FILE):\s*/i, "")
       .replace(/[.,;:!?。，；：！？）》」』\]]+$/, "")
       .trim();
     if (!normalized.startsWith("/workspace/")) continue;

@@ -457,3 +457,65 @@ test("deliverBotReplyText packs local workspace image into active_stream msg_ite
   assert.equal(deliverer.finishedStreams[0].options?.msgItem?.length, 1);
   assert.equal(deliverer.finishedStreams[0].options?.msgItem?.[0]?.msgtype, "image");
 });
+
+test("deliverBotReplyText sends markdown webhook reply and MEDIA directives without leaking directive text", async () => {
+  const webhookCalls = {
+    text: [],
+    markdown: [],
+    image: [],
+  };
+  const deliverer = createDeliverer({
+    resolveWecomDeliveryFallbackPolicy: () => ({
+      enabled: true,
+      order: ["webhook_bot"],
+    }),
+    resolveWecomWebhookBotDeliveryPolicy: () => ({
+      enabled: true,
+      url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc",
+      key: "",
+      timeoutMs: 8000,
+    }),
+    resolveWecomReplyFormatPolicy: () => ({
+      mode: "markdown",
+    }),
+    hasBotStream: () => false,
+    webhookSendTextFn: async (payload) => {
+      webhookCalls.text.push(payload);
+    },
+    webhookSendImageFn: async (payload) => {
+      webhookCalls.image.push(payload);
+    },
+    webhookSendFileBufferFn: async () => {},
+    fetchMediaFromUrl: async () => ({
+      buffer: Buffer.from("image-binary"),
+      contentType: "image/png",
+    }),
+    resolveWecomBotConfig: () => ({
+      longConnection: {
+        enabled: false,
+      },
+      card: {
+        enabled: false,
+        mode: "markdown",
+        responseUrlEnabled: true,
+        webhookBotEnabled: true,
+      },
+    }),
+    resolveWebhookBotSendUrlFn: () => "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc",
+  });
+
+  const result = await deliverer.deliverBotReplyText({
+    api: createApiMock(),
+    fromUser: "dingxiang",
+    sessionId: "wecom-bot:dingxiang",
+    streamId: "stream-missing",
+    text: "标题",
+    rawText: "## 标题\nMEDIA: https://example.com/chart.png",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.layer, "webhook_bot");
+  assert.equal(webhookCalls.text.length, 1);
+  assert.equal(webhookCalls.text[0].content, "标题");
+  assert.equal(webhookCalls.image.length, 1);
+});

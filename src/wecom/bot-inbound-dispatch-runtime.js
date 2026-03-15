@@ -35,6 +35,7 @@ export async function executeWecomBotDispatchRuntime({
   markdownToWecomText,
   isAgentFailureText,
   safeDeliverReply,
+  resolveWecomReasoningPolicy,
   markTranscriptReplyDelivered,
   ACTIVE_LATE_REPLY_WATCHERS,
   ensureTranscriptFallbackReader,
@@ -94,6 +95,7 @@ export async function executeWecomBotDispatchRuntime({
     markdownToWecomText,
     isAgentFailureText,
     safeDeliverReply,
+    reasoningPolicy: resolveWecomReasoningPolicy?.(api) ?? {},
   });
 
   await withTimeout(
@@ -129,6 +131,7 @@ export async function executeWecomBotDispatchRuntime({
     markdownToWecomText,
     safeDeliverReply,
     startLateReplyWatcher,
+    reasoningPolicy: resolveWecomReasoningPolicy?.(api) ?? {},
   });
 
   return {

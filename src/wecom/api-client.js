@@ -46,6 +46,7 @@ export function createWecomApiClient({
     getWecomAccessToken: core.getWecomAccessToken,
     buildWecomMessageSendRequest: core.buildWecomMessageSendRequest,
     sendWecomText: senders.sendWecomText,
+    sendWecomMarkdown: senders.sendWecomMarkdown,
     uploadWecomMedia: media.uploadWecomMedia,
     sendWecomImage: senders.sendWecomImage,
     sendWecomVideo: senders.sendWecomVideo,

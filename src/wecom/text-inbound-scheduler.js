@@ -99,7 +99,12 @@ export function createWecomTextInboundScheduler({
     const text = String(content ?? "");
     let commandProbeText = text;
     if (basePayload?.isGroupChat) {
-      const groupPolicy = resolveWecomGroupChatPolicy(api);
+      const groupPolicy = resolveWecomGroupChatPolicy(
+        api,
+        basePayload?.accountId || "default",
+        {},
+        basePayload?.chatId || "",
+      );
       if (shouldStripWecomGroupMentions(groupPolicy)) {
         commandProbeText = stripWecomGroupMentions(commandProbeText, groupPolicy.mentionPatterns);
       }

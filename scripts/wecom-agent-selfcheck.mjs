@@ -10,12 +10,16 @@ import {
   normalizeAccountConfig as normalizeSharedAccountConfig,
   readAccountConfigFromEnv as readSharedAccountConfigFromEnv,
 } from "../src/wecom/account-config-core.js";
+import { resolveWecomGroupChatConfig } from "../src/core.js";
 import { buildDefaultAgentWebhookPath, buildLegacyAgentWebhookPath } from "../src/wecom/account-paths.js";
 import { diagnoseWecomCallbackHealth } from "../src/wecom/callback-health-diagnostics.js";
 
 const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "name",
   "enabled",
+  "botId",
+  "botid",
+  "secret",
   "corpId",
   "corpSecret",
   "agentId",
@@ -27,9 +31,14 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "outboundProxy",
   "proxyUrl",
   "proxy",
+  "network",
+  "apiBaseUrl",
   "webhooks",
   "allowFrom",
   "allowFromRejectMessage",
+  "groupPolicy",
+  "groupAllowFrom",
+  "groupAllowFromRejectMessage",
   "rejectUnauthorizedMessage",
   "adminUsers",
   "commandAllowlist",
@@ -37,6 +46,7 @@ const LEGACY_INLINE_ACCOUNT_RESERVED_KEYS = new Set([
   "commands",
   "workspaceTemplate",
   "groupChat",
+  "groups",
   "dynamicAgent",
   "dynamicAgents",
   "dm",
@@ -159,6 +169,21 @@ function decodeAesKey(aesKey) {
   return key;
 }
 
+function formatGroupSourceLabel(source = "") {
+  const normalized = String(source ?? "").trim();
+  if (!normalized) return "none";
+  if (normalized === "default") return "default";
+  if (normalized === "inferred") return "inferred";
+  if (normalized.startsWith("env.")) return "env";
+  if (normalized.startsWith("account.group")) return "account-group";
+  if (normalized.startsWith("account.groupChat")) return "account-group-default";
+  if (normalized.startsWith("account.root")) return "account-root";
+  if (normalized.startsWith("channel.group")) return "channel-group";
+  if (normalized.startsWith("channel.groupChat")) return "channel-group-default";
+  if (normalized.startsWith("channel.root")) return "channel-root";
+  return normalized;
+}
+
 function pkcs7Pad(buf, blockSize = 32) {
   const amountToPad = blockSize - (buf.length % blockSize || blockSize);
   const pad = Buffer.alloc(amountToPad === 0 ? blockSize : amountToPad, amountToPad === 0 ? blockSize : amountToPad);
@@ -246,14 +271,55 @@ function buildAgentOverview({ config, account } = {}) {
   const bindingsCount = Array.isArray(config?.bindings) ? config.bindings.length : 0;
   const dynamicAgentEnabled =
     config?.channels?.wecom?.dynamicAgent?.enabled === true || config?.channels?.wecom?.dynamicAgents?.enabled === true;
+  const deliveryConfig = config?.channels?.wecom?.delivery ?? {};
+  const pendingReplyConfig = deliveryConfig?.pendingReply ?? {};
+  const reasoningConfig = deliveryConfig?.reasoning ?? {};
+  const pendingReplyEnabled = pendingReplyConfig?.enabled !== false;
+  const pendingReplyPersist = pendingReplyEnabled && pendingReplyConfig?.persist !== false;
+  const pendingReplyStoreFile = pickFirstNonEmptyString(pendingReplyConfig?.storeFile) || null;
+  const quotaTrackingEnabled = deliveryConfig?.quotaTracking?.enabled !== false;
+  const reasoningMode = (() => {
+    const explicit = pickFirstNonEmptyString(reasoningConfig?.mode).toLowerCase();
+    if (explicit === "append" || explicit === "hidden" || explicit === "separate") return explicit;
+    if (reasoningConfig?.includeInFinalAnswer === true) return "append";
+    if (reasoningConfig?.sendThinkingMessage === false) return "hidden";
+    return "separate";
+  })();
   const canReceive = Boolean(account?.callbackToken && account?.callbackAesKey && account?.webhookPath);
   const canReply = Boolean(account?.corpId && account?.corpSecret && account?.agentId);
+  const groupPolicy = resolveWecomGroupChatConfig({
+    channelConfig: config?.channels?.wecom ?? {},
+    accountConfig: account ?? {},
+    envVars: config?.env?.vars ?? {},
+    processEnv: process.env,
+    accountId: account?.accountId || "default",
+  });
+  const allowFrom = Array.isArray(groupPolicy?.allowFrom) ? groupPolicy.allowFrom : [];
   return {
     canReceive,
     canReply,
     canSend: canReply,
     bindingsCount,
     dynamicAgentEnabled,
+    pendingReplyEnabled,
+    pendingReplyPersist,
+    pendingReplyStoreFile,
+    quotaTrackingEnabled,
+    reasoningMode,
+    reasoningTitle: pickFirstNonEmptyString(reasoningConfig?.title, "思考过程"),
+    reasoningMaxChars: Math.max(64, asNumber(reasoningConfig?.maxChars, 1200) || 1200),
+    groupPolicy: {
+      mode: String(groupPolicy?.policyMode ?? "open"),
+      trigger: String(groupPolicy?.triggerMode ?? "direct"),
+      allowSummary:
+        groupPolicy?.policyMode === "allowlist"
+          ? String(allowFrom.length)
+          : allowFrom.length > 0 && !allowFrom.includes("*")
+            ? `${allowFrom.length}(inactive)`
+            : "open",
+      groups: Number(groupPolicy?.configuredGroupCount || 0),
+      source: formatGroupSourceLabel(groupPolicy?.policySource),
+    },
   };
 }
 
@@ -422,6 +488,13 @@ function reportAndExit(report, asJson = false) {
     console.log(
       `- routing: bindings=${overview.bindingsCount} dynamicAgent=${overview.dynamicAgentEnabled ? "on" : "off"}`,
     );
+    console.log(
+      `- reliable-delivery: pendingReply=${overview.pendingReplyEnabled ? "on" : "off"} persist=${overview.pendingReplyPersist ? "on" : "off"} quotaTracking=${overview.quotaTrackingEnabled ? "on" : "off"} store=${overview.pendingReplyPersist ? overview.pendingReplyStoreFile || "(auto)" : "(disabled)"}`,
+    );
+    console.log(
+      `- group-policy: mode=${overview.groupPolicy.mode} trigger=${overview.groupPolicy.trigger} allowFrom=${overview.groupPolicy.allowSummary} groups=${overview.groupPolicy.groups} source=${overview.groupPolicy.source}`,
+    );
+    console.log(`- reasoning: mode=${overview.reasoningMode} title=${overview.reasoningTitle} maxChars=${overview.reasoningMaxChars}`);
     for (const check of accountReport.checks) {
       console.log(`${check.ok ? "OK " : "FAIL"} ${check.name} :: ${check.detail}`);
     }
@@ -453,6 +526,7 @@ async function runAgentE2E({ config, args, configPath, accountId }) {
       configPath,
       endpoint,
       accountId: normalizeAccountId(accountId),
+      account: null,
       checks,
       summary: summarize(checks),
     };
@@ -483,6 +557,8 @@ async function runAgentE2E({ config, args, configPath, accountId }) {
       configPath,
       endpoint,
       accountId: account.accountId,
+      account,
+      overview: buildAgentOverview({ config, account }),
       checks,
       summary: summarize(checks),
     };
@@ -633,6 +709,8 @@ async function runAgentE2E({ config, args, configPath, accountId }) {
     configPath,
     endpoint,
     accountId: account.accountId,
+    account,
+    overview: buildAgentOverview({ config, account }),
     checks,
     summary: summarize(checks),
   };

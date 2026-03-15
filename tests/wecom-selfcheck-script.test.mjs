@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import test from "node:test";
+
+const rootPackageVersion = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 
 async function runSelfcheck(args = []) {
   const scriptPath = path.resolve(process.cwd(), "scripts/wecom-selfcheck.mjs");
@@ -94,6 +98,50 @@ test("wecom-selfcheck resolves agent blocks and legacy inline accounts in --all-
   }
 });
 
+test("wecom-selfcheck accepts bot-only default accounts", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "wecom-selfcheck-bot-only-"));
+  const configPath = path.join(tempDir, "openclaw.json");
+  const config = {
+    plugins: {
+      allow: ["openclaw-wechat"],
+      entries: {
+        "openclaw-wechat": { enabled: true },
+      },
+    },
+    channels: {
+      wecom: {
+        bot: {
+          enabled: true,
+          longConnection: {
+            enabled: true,
+            botId: "bot-only-id",
+            secret: "bot-only-secret",
+          },
+        },
+      },
+    },
+  };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+  const result = await runSelfcheck([
+    "--config",
+    configPath,
+    "--skip-network",
+    "--skip-local-webhook",
+    "--json",
+  ]);
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report?.summary?.ok, true);
+  const accountReport = report?.accounts?.[0];
+  const configCheck = accountReport?.checks?.find((item) => item?.name === "config.account");
+  assert.equal(configCheck?.ok, true);
+  assert.equal(accountReport?.resolved?.botOnly, true);
+  assert.equal(accountReport?.overview?.canReceive, true);
+  assert.equal(accountReport?.overview?.canReply, true);
+});
+
 test("wecom-selfcheck flags stale npm install metadata", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "wecom-selfcheck-"));
   const configPath = path.join(tempDir, "openclaw.json");
@@ -133,5 +181,50 @@ test("wecom-selfcheck flags stale npm install metadata", async () => {
   );
   assert.ok(versionCheck);
   assert.equal(versionCheck.ok, false);
-  assert.match(versionCheck.detail, /expected>=2\.1\.0/);
+  assert.match(versionCheck.detail, new RegExp(`expected>=${rootPackageVersion.replace(/\./g, "\\.")}`));
+});
+
+test("wecom-selfcheck text summary includes persistence and reasoning overview", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "wecom-selfcheck-"));
+  const configPath = path.join(tempDir, "openclaw.json");
+  const config = {
+    plugins: {
+      allow: ["openclaw-wechat"],
+      entries: {
+        "openclaw-wechat": { enabled: true },
+      },
+    },
+    channels: {
+      wecom: {
+        agent: buildAgentBlock(1001),
+        groupPolicy: "allowlist",
+        groupAllowFrom: ["alice", "bob"],
+        delivery: {
+          pendingReply: {
+            enabled: true,
+            persist: true,
+            storeFile: "/tmp/wecom-reliable-delivery.json",
+          },
+          reasoning: {
+            mode: "append",
+            title: "内部推理",
+            maxChars: 256,
+          },
+        },
+      },
+    },
+  };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+  const result = await runSelfcheck([
+    "--config",
+    configPath,
+    "--skip-network",
+    "--skip-local-webhook",
+  ]);
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /reliable-delivery: pendingReply=on persist=on quotaTracking=on store=\/tmp\/wecom-reliable-delivery\.json/);
+  assert.match(result.stdout, /group-policy: mode=allowlist trigger=direct allowFrom=2 groups=0 source=channel-root/);
+  assert.match(result.stdout, /reasoning: mode=append title=内部推理 maxChars=256/);
 });

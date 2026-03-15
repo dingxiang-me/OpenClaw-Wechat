@@ -58,6 +58,7 @@ export function createWecomInboundContentBuilder({
     corpSecret,
     agentId,
     proxyUrl,
+    apiBaseUrl,
     fromUser,
     msgType,
     baseText,
@@ -82,6 +83,7 @@ export function createWecomInboundContentBuilder({
         mediaId,
         picUrl,
         proxyUrl,
+        apiBaseUrl,
         tempPathsToCleanup,
       });
     } else if (msgType === "voice" && mediaId) {
@@ -94,6 +96,7 @@ export function createWecomInboundContentBuilder({
         mediaId,
         recognition,
         proxyUrl,
+        apiBaseUrl,
       });
     } else if (msgType === "video" && mediaId) {
       result = await handlers.handleVideo({
@@ -102,6 +105,7 @@ export function createWecomInboundContentBuilder({
         corpSecret,
         mediaId,
         proxyUrl,
+        apiBaseUrl,
         tempPathsToCleanup,
       });
     } else if (msgType === "file" && mediaId) {
@@ -113,6 +117,7 @@ export function createWecomInboundContentBuilder({
         fileName,
         fileSize,
         proxyUrl,
+        apiBaseUrl,
         tempPathsToCleanup,
       });
     } else if (msgType === "link") {

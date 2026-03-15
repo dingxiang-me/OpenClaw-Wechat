@@ -24,7 +24,39 @@ export function createWecomApiSenders({
     sendWecomTypedMessage,
   });
 
-  async function sendWecomImage({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl }) {
+  async function sendWecomMarkdown({
+    corpId,
+    corpSecret,
+    agentId,
+    toUser,
+    toParty,
+    toTag,
+    chatId,
+    content,
+    logger,
+    proxyUrl,
+    apiBaseUrl,
+  }) {
+    return sendWecomTypedMessage({
+      corpId,
+      corpSecret,
+      agentId,
+      toUser,
+      toParty,
+      toTag,
+      chatId,
+      msgType: "markdown",
+      payload: {
+        markdown: { content: String(content ?? "") },
+      },
+      logger,
+      proxyUrl,
+      apiBaseUrl,
+      errorPrefix: "WeCom markdown send failed",
+    });
+  }
+
+  async function sendWecomImage({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl, apiBaseUrl }) {
     return sendWecomTypedMessage({
       corpId,
       corpSecret,
@@ -39,6 +71,7 @@ export function createWecomApiSenders({
       },
       logger,
       proxyUrl,
+      apiBaseUrl,
       errorPrefix: "WeCom image send failed",
     });
   }
@@ -56,6 +89,7 @@ export function createWecomApiSenders({
     description,
     logger,
     proxyUrl,
+    apiBaseUrl,
   }) {
     const videoPayload = {
       media_id: mediaId,
@@ -76,11 +110,12 @@ export function createWecomApiSenders({
       },
       logger,
       proxyUrl,
+      apiBaseUrl,
       errorPrefix: "WeCom video send failed",
     });
   }
 
-  async function sendWecomFile({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl }) {
+  async function sendWecomFile({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl, apiBaseUrl }) {
     return sendWecomTypedMessage({
       corpId,
       corpSecret,
@@ -95,11 +130,12 @@ export function createWecomApiSenders({
       },
       logger,
       proxyUrl,
+      apiBaseUrl,
       errorPrefix: "WeCom file send failed",
     });
   }
 
-  async function sendWecomVoice({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl }) {
+  async function sendWecomVoice({ corpId, corpSecret, agentId, toUser, toParty, toTag, chatId, mediaId, logger, proxyUrl, apiBaseUrl }) {
     return sendWecomTypedMessage({
       corpId,
       corpSecret,
@@ -114,12 +150,14 @@ export function createWecomApiSenders({
       },
       logger,
       proxyUrl,
+      apiBaseUrl,
       errorPrefix: "WeCom voice send failed",
     });
   }
 
   return {
     sendWecomText,
+    sendWecomMarkdown,
     sendWecomImage,
     sendWecomVideo,
     sendWecomFile,

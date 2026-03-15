@@ -29,6 +29,7 @@ test("register logs startup and registers channel/routes", () => {
   const { logger, logs } = createLogger();
   const calls = {
     setRuntime: 0,
+    initReliableDelivery: 0,
     registerChannel: 0,
     registerTool: 0,
     botRoute: 0,
@@ -38,6 +39,9 @@ test("register logs startup and registers channel/routes", () => {
   const runtime = createWecomRegisterRuntime({
     setGatewayRuntime: () => {
       calls.setRuntime += 1;
+    },
+    initializeWecomReliableDeliveryPersistence: async () => {
+      calls.initReliableDelivery += 1;
     },
     syncWecomSessionQueuePolicy: () => ({ enabled: true, timeoutMs: 9000, maxConcurrentPerSession: 1 }),
     resolveWecomDeliveryFallbackPolicy: () => ({ enabled: true, order: ["active_stream", "agent_push"] }),
@@ -73,6 +77,7 @@ test("register logs startup and registers channel/routes", () => {
   });
 
   assert.equal(calls.setRuntime, 1);
+  assert.equal(calls.initReliableDelivery, 1);
   assert.equal(calls.registerChannel, 1);
   assert.equal(calls.registerTool, 1);
   assert.equal(calls.botRoute, 1);

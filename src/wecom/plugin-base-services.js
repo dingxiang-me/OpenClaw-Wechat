@@ -14,6 +14,7 @@ import { createWecomDefaultLimiters } from "./rate-limiter.js";
 import { createWecomMediaFetcher, normalizeOutboundMediaUrls, resolveWecomOutboundMediaTarget } from "./media-url-utils.js";
 import { createWecomOutboundSender } from "./outbound-sender.js";
 import { createWecomObservabilityMetricsStore } from "./observability-metrics.js";
+import { createWecomReliableDeliveryStore } from "./reliable-delivery.js";
 import { createWecomRequestParsers } from "./request-parsers.js";
 import { createWecomTargetResolver } from "./target-utils.js";
 import { createDeliveredTranscriptReplyTracker } from "./transcript-utils.js";
@@ -45,6 +46,7 @@ export function createWecomPluginBaseServices({
     recordRuntimeErrorMetric,
     getWecomObservabilityMetrics,
   } = createWecomObservabilityMetricsStore();
+  const reliableDeliveryStore = createWecomReliableDeliveryStore();
   const { markTranscriptReplyDelivered, hasTranscriptReplyBeenDelivered } = createDeliveredTranscriptReplyTracker({
     ttlMs: TRANSCRIPT_REPLY_CACHE_TTL_MS,
   });
@@ -91,6 +93,7 @@ export function createWecomPluginBaseServices({
     getWecomAccessToken,
     buildWecomMessageSendRequest,
     sendWecomText,
+    sendWecomMarkdown,
     uploadWecomMedia,
     sendWecomImage,
     sendWecomVideo,
@@ -150,6 +153,56 @@ export function createWecomPluginBaseServices({
     resolveWecomTarget,
   });
 
+  function markWecomReliableInboundActivity({
+    mode = "agent",
+    accountId = "default",
+    sessionId = "",
+    fromUser = "",
+    at,
+  } = {}) {
+    return reliableDeliveryStore.markInboundActivity({
+      mode,
+      accountId,
+      sessionId,
+      fromUser,
+      at,
+    });
+  }
+
+  function recordReliableDeliveryOutcome({
+    mode = "agent",
+    accountId = "default",
+    sessionId = "",
+    fromUser = "",
+    deliveryStatus = "rejected_unknown",
+    layer = "",
+    reason = "",
+    at,
+  } = {}) {
+    return reliableDeliveryStore.recordDeliveryOutcome({
+      mode,
+      accountId,
+      sessionId,
+      fromUser,
+      deliveryStatus,
+      layer,
+      reason,
+      at,
+    });
+  }
+
+  function getWecomReliableDeliverySnapshot({
+    mode = "agent",
+    accountId = "default",
+    sessionId = "",
+  } = {}) {
+    return reliableDeliveryStore.getDeliverySnapshot({
+      mode,
+      accountId,
+      sessionId,
+    });
+  }
+
   return {
     markTranscriptReplyDelivered,
     hasTranscriptReplyBeenDelivered,
@@ -157,6 +210,10 @@ export function createWecomPluginBaseServices({
     recordDeliveryMetric,
     recordRuntimeErrorMetric,
     getWecomObservabilityMetrics,
+    markWecomReliableInboundActivity,
+    recordReliableDeliveryOutcome,
+    getWecomReliableDeliverySnapshot,
+    reliableDeliveryStore,
     scheduleTempFileCleanup,
     setBotStreamExpireMs,
     resolveBotActiveStream,
@@ -185,6 +242,7 @@ export function createWecomPluginBaseServices({
     getWecomAccessToken,
     buildWecomMessageSendRequest,
     sendWecomText,
+    sendWecomMarkdown,
     uploadWecomMedia,
     sendWecomImage,
     sendWecomVideo,

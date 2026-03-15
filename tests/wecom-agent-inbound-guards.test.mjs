@@ -85,6 +85,58 @@ test("applyWecomAgentInboundGuards blocks sender by allowFrom", async () => {
   assert.deepEqual(sent, ["not allowed"]);
 });
 
+test("applyWecomAgentInboundGuards blocks unauthorized group sender by groupAllowFrom", async () => {
+  const { input, sent } = createCommon({
+    isGroupChat: true,
+    chatId: "roomA",
+    normalizedFromUser: "u1",
+    groupChatPolicy: {
+      enabled: true,
+      policyMode: "allowlist",
+      triggerMode: "direct",
+      allowFrom: ["u2"],
+      rejectMessage: "group blocked",
+    },
+  });
+  const result = await applyWecomAgentInboundGuards(input);
+  assert.equal(result.ok, false);
+  assert.deepEqual(sent, ["group blocked"]);
+});
+
+test("applyWecomAgentInboundGuards allows group sender when policyMode is open", async () => {
+  const { input } = createCommon({
+    isGroupChat: true,
+    chatId: "roomA",
+    normalizedFromUser: "u1",
+    groupChatPolicy: {
+      enabled: true,
+      policyMode: "open",
+      triggerMode: "direct",
+      allowFrom: ["u2"],
+      rejectMessage: "group blocked",
+    },
+  });
+  const result = await applyWecomAgentInboundGuards(input);
+  assert.equal(result.ok, true);
+});
+
+test("applyWecomAgentInboundGuards blocks group sender when policyMode is deny", async () => {
+  const { input, sent } = createCommon({
+    isGroupChat: true,
+    chatId: "roomA",
+    normalizedFromUser: "u1",
+    groupChatPolicy: {
+      enabled: false,
+      policyMode: "deny",
+      triggerMode: "direct",
+      rejectMessage: "group deny",
+    },
+  });
+  const result = await applyWecomAgentInboundGuards(input);
+  assert.equal(result.ok, false);
+  assert.deepEqual(sent, []);
+});
+
 test("applyWecomAgentInboundGuards translates /clear and handles command", async () => {
   const { input, handled } = createCommon({
     commandBody: "/clear now",

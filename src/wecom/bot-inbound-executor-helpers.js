@@ -90,6 +90,7 @@ export function assertWecomBotInboundFlowDeps({ api, ...deps } = {}) {
     "resolveWecomCommandPolicy",
     "resolveWecomAllowFromPolicy",
     "resolveWecomDmPolicy",
+    "resolveWecomReasoningPolicy",
     "isWecomSenderAllowed",
     "extractLeadingSlashCommand",
     "buildWecomBotHelpText",
@@ -117,6 +118,7 @@ export function createWecomBotInboundFlowState({
   api,
   accountId = "default",
   fromUser,
+  chatId = "",
   content,
   imageEntries,
   imageUrls,
@@ -172,7 +174,10 @@ export function createWecomBotInboundFlowState({
             content: String(quote.content ?? "").trim(),
           }
         : null,
-    groupChatPolicy: normalizeWecomBotGroupChatPolicy(resolveWecomGroupChatPolicy(api), api?.logger),
+    groupChatPolicy: normalizeWecomBotGroupChatPolicy(
+      resolveWecomGroupChatPolicy(api, normalizedAccountId, {}, chatId),
+      api?.logger,
+    ),
     dynamicAgentPolicy: resolveWecomDynamicAgentPolicy(api),
     isAdminUser: false,
   };
@@ -203,7 +208,9 @@ export function createWecomBotSafeReplyHelpers({
           ? reply
           : { text: "" };
     const contentText = String(normalizedReply.text ?? "").trim();
+    const rawContentText = String(normalizedReply.rawText ?? contentText).trim();
     const thinkingContent = String(normalizedReply.thinkingContent ?? "").trim();
+    const rawThinkingContent = String(normalizedReply.rawThinkingContent ?? thinkingContent).trim();
     const replyMediaUrls = normalizeWecomBotOutboundMediaUrls(normalizedReply);
     if (!contentText && replyMediaUrls.length === 0 && !thinkingContent) return false;
     const result = await deliverBotReplyText({
@@ -214,7 +221,10 @@ export function createWecomBotSafeReplyHelpers({
       streamId,
       responseUrl,
       text: contentText,
+      rawText: rawContentText,
       thinkingContent,
+      rawThinkingContent,
+      routeAgentId: state.routedAgentId,
       mediaUrls: replyMediaUrls,
       mediaType: String(normalizedReply.mediaType ?? "").trim().toLowerCase() || undefined,
       reason,

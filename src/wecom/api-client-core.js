@@ -1,3 +1,5 @@
+import { buildWecomApiUrl, isWecomApiUrl, normalizeWecomApiBaseUrl } from "./network-config.js";
+
 export function createWecomApiClientCore({
   fetchImpl = fetch,
   proxyAgentCtor,
@@ -10,17 +12,6 @@ export function createWecomApiClientCore({
   const accessTokenCaches = new Map();
   const proxyDispatcherCache = new Map();
   const invalidProxyCache = new Set();
-
-  function isWecomApiUrl(url) {
-    const raw = typeof url === "string" ? url : String(url ?? "");
-    if (!raw) return false;
-    try {
-      const parsed = new URL(raw);
-      return parsed.hostname === "qyapi.weixin.qq.com";
-    } catch {
-      return raw.includes("qyapi.weixin.qq.com");
-    }
-  }
 
   function isLikelyHttpProxyUrl(proxyUrl) {
     return /^https?:\/\/\S+$/i.test(proxyUrl);
@@ -73,11 +64,11 @@ export function createWecomApiClientCore({
 
   function attachWecomProxyDispatcher(url, options = {}, { proxyUrl, logger } = {}) {
     const shouldForceProxy = options?.forceProxy === true;
-    if (!isWecomApiUrl(url) && !shouldForceProxy) return options;
+    if (!isWecomApiUrl(url, { apiBaseUrl: options?.apiBaseUrl }) && !shouldForceProxy) return options;
     if (options?.dispatcher) return options;
     const dispatcher = resolveWecomProxyDispatcher(proxyUrl, logger);
     if (!dispatcher) return options;
-    const { forceProxy, ...restOptions } = options || {};
+    const { forceProxy, apiBaseUrl, ...restOptions } = options || {};
     return {
       ...restOptions,
       dispatcher,
@@ -120,8 +111,9 @@ export function createWecomApiClientCore({
     throw lastError || new Error(`Fetch failed after ${maxRetries} retries`);
   }
 
-  async function getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger }) {
-    const cacheKey = `${corpId}:${corpSecret}`;
+  async function getWecomAccessToken({ corpId, corpSecret, proxyUrl, logger, apiBaseUrl }) {
+    const normalizedApiBaseUrl = normalizeWecomApiBaseUrl(apiBaseUrl);
+    const cacheKey = `${corpId}:${corpSecret}:${normalizedApiBaseUrl}`;
     let cache = accessTokenCaches.get(cacheKey);
 
     if (!cache) {
@@ -140,8 +132,17 @@ export function createWecomApiClientCore({
 
     cache.refreshPromise = (async () => {
       try {
-        const tokenUrl = `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${encodeURIComponent(corpId)}&corpsecret=${encodeURIComponent(corpSecret)}`;
-        const tokenRes = await fetchWithRetry(tokenUrl, {}, 3, 1000, { proxyUrl, logger });
+        const tokenUrl = buildWecomApiUrl(
+          `/cgi-bin/gettoken?corpid=${encodeURIComponent(corpId)}&corpsecret=${encodeURIComponent(corpSecret)}`,
+          { apiBaseUrl: normalizedApiBaseUrl },
+        );
+        const tokenRes = await fetchWithRetry(
+          tokenUrl,
+          { apiBaseUrl: normalizedApiBaseUrl },
+          3,
+          1000,
+          { proxyUrl, logger },
+        );
         const tokenJson = await tokenRes.json();
         if (!tokenJson?.access_token) {
           throw new Error(`WeCom gettoken failed: ${JSON.stringify(tokenJson)}`);
@@ -166,6 +167,7 @@ export function createWecomApiClientCore({
     chatId,
     msgType,
     payload,
+    apiBaseUrl,
   }) {
     const isAppChat = Boolean(chatId);
     if (!isAppChat && !toUser && !toParty && !toTag) {
@@ -173,7 +175,10 @@ export function createWecomApiClientCore({
     }
     if (isAppChat) {
       return {
-        sendUrl: `https://qyapi.weixin.qq.com/cgi-bin/appchat/send?access_token=${encodeURIComponent(accessToken)}`,
+        sendUrl: buildWecomApiUrl(
+          `/cgi-bin/appchat/send?access_token=${encodeURIComponent(accessToken)}`,
+          { apiBaseUrl },
+        ),
         body: {
           chatid: chatId,
           msgtype: msgType,
@@ -184,7 +189,10 @@ export function createWecomApiClientCore({
       };
     }
     return {
-      sendUrl: `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`,
+      sendUrl: buildWecomApiUrl(
+        `/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`,
+        { apiBaseUrl },
+      ),
       body: {
         touser: toUser,
         toparty: toParty,
