@@ -179,6 +179,7 @@ test("transcribeInboundVoice rejects unsupported type when ffmpeg disabled", asy
 
 test("transcribeInboundVoice keeps temp audio until local whisper cli finishes", async () => {
   const transcriber = createTranscriber({
+    checkCommandAvailableImpl: async (cmd) => cmd === "whisper-cli",
     runProcessWithTimeoutImpl: async ({ args }) => {
       const audioPath = args[args.indexOf("-f") + 1];
       const outputBase = args[args.indexOf("-of") + 1];
